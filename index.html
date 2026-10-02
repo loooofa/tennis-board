@@ -1269,7 +1269,13 @@
   // - With shift on, the pairs move together: the hitting pair shifts sideways towards the side the ball
   //   went to (its centre to SHIFT of the way from the middle to the ball), and the returner's partner
   //   follows PARTNER of the returner's sideways run. Depths stay as they were.
+  //   A shifted player stays in their half: not past the centre line nor out past the singles sideline
+  //   (one already beyond is not moved further out). The returner runs to the ball wherever it is.
   const SHIFT = 0.5, PARTNER = 0.5;
+  function keepHalf(fromX, toX) {
+    const [lo, hi] = fromX < W / 2 ? [ALLEY, W / 2] : [W / 2, W - ALLEY];
+    return Math.max(Math.min(fromX, lo), Math.min(Math.max(fromX, hi), toX));
+  }
   function autoMoves(st, from, ret, { shift = true } = {}) {
     const hitTeam = hittingTeam(from, st.pieces.ball);
     const out = {};
@@ -1278,11 +1284,10 @@
     const r = returnerOf(st, from, ret);
     out[r.id] = returnSpot(r, ret);
     if (!shift) return out;
-    const side = (x) => Math.max(-6, Math.min(W + 6, x)); // may stand in the alley or just outside, not further
     const q = rec.find((p) => p !== r);
-    out[q.id] = { x: side(from[q.id].x + (out[r.id].x - from[r.id].x) * PARTNER), y: from[q.id].y };
+    out[q.id] = { x: keepHalf(from[q.id].x, from[q.id].x + (out[r.id].x - from[r.id].x) * PARTNER), y: from[q.id].y };
     const centre = (from[hit[0].id].x + from[hit[1].id].x) / 2, target = W / 2 + (ret.x - W / 2) * SHIFT;
-    for (const p of hit) out[p.id] = { x: side(from[p.id].x + target - centre), y: from[p.id].y };
+    for (const p of hit) out[p.id] = { x: keepHalf(from[p.id].x, from[p.id].x + target - centre), y: from[p.id].y };
     return out;
   }
 
