@@ -1,0 +1,2648 @@
+<!doctype html>
+<!-- Built by tools/build.js from src/: edit the files in src/, then run `npm run build`. -->
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ダブルス陣形ボード</title>
+<style>
+  :root {
+    --board: #1c2624;
+    --board-2: #243230;
+    --panel: #26332f;
+    --chalk: #eef2e6;
+    --chalk-dim: #a9b5a8;
+    --line: rgba(238, 242, 230, 0.16);
+    --p1: #f5a524;
+    --p2: #ff6f4e;
+    --pA: #e0449b;
+    --pB: #a57bff;
+    --ball: #e4f04a;
+    --accent: #d3ec52;
+    --danger: #ff7b6b;
+    --radius: 10px;
+    --court-k: 0.4966; /* drawing width / height (146 / 294) */
+  }
+  * { box-sizing: border-box; }
+  /* Every screen is one page that never scrolls: the court takes the height, the controls fit around it. */
+  html, body { margin: 0; height: 100%; overflow: hidden; overscroll-behavior: none; }
+  body {
+    background: var(--board);
+    background-image: radial-gradient(ellipse at 30% 0%, var(--board-2), var(--board) 70%);
+    color: var(--chalk);
+    /* the device's own UI font: nothing to download, works offline, looks like the rest of the phone / PC */
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", Meiryo, "Noto Sans JP", Roboto, sans-serif;
+    font-size: 15px;
+    line-height: 1.5;
+    height: 100vh; height: 100svh;
+    display: flex; flex-direction: column;
+    -webkit-tap-highlight-color: transparent;
+  }
+  button, input, select { font: inherit; color: inherit; }
+  h2 { font-weight: 700; margin: 0; font-size: 1.02rem; color: var(--accent); }
+  h3 { font-size: .86rem; color: var(--chalk-dim); font-weight: 700; margin: 14px 0 6px; }
+
+  .btn {
+    border: 1px solid var(--line); background: rgba(255,255,255,.05);
+    border-radius: 8px; padding: 7px 11px; cursor: pointer; min-height: 44px;
+    transition: background .15s, border-color .15s;
+    white-space: nowrap;
+  }
+  @media (hover: hover) { .btn:hover:not(:disabled) { background: rgba(255,255,255,.11); } }
+  .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .btn:disabled { opacity: .38; cursor: not-allowed; }
+  .btn.primary { background: var(--accent); color: #1b2410; border-color: transparent; font-weight: 700; }
+  @media (hover: hover) { .btn.primary:hover:not(:disabled) { background: #e2f47a; } }
+  .btn.on { background: var(--ball); color: #1b2410; border-color: transparent; font-weight: 700; }
+  .btn.danger { color: var(--danger); }
+  .btn.small { padding: 4px 10px; font-size: .88rem; }
+  .row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .seg { display: inline-flex; }
+  .seg .btn { border-radius: 0; margin-left: -1px; }
+  .seg .btn:first-child { border-radius: 8px 0 0 8px; margin-left: 0; }
+  .seg .btn:last-child { border-radius: 0 8px 8px 0; }
+  .hint { font-size: .8rem; color: var(--chalk-dim); margin: 8px 0 0; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px; }
+  .sheet-head { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
+  .sheet-head h2 { flex: 1; }
+  /* Long labels on roomy screens, short ones on a phone held upright. */
+  .s { display: none; }
+  body[data-layout="phone"] .s { display: inline; }
+  body[data-layout="phone"] .l { display: none; }
+  body:not([data-layout="wide"]) .only-wide { display: none !important; }
+  body[data-layout="wide"] .not-wide { display: none !important; }
+  body:not(.at-start) .start-only { display: none !important; }
+
+  /* ---- Top bar: point name (tap to rename) + list */
+  .topbar { display: flex; align-items: center; gap: 6px; padding: 6px 8px 4px; padding-top: max(6px, env(safe-area-inset-top)); min-width: 0; }
+  body[data-layout="phone"] .topbar .btn, body[data-layout="phone"] #point-name { min-height: 40px; }
+  #btn-library { font-size: 1.1rem; padding: 4px 10px; }
+  #point-name {
+    flex: 1; min-width: 0; min-height: 44px; padding: 4px 8px;
+    font-weight: 700; font-size: 1.08rem;
+    background: transparent; border: 1px solid transparent; border-radius: 8px; text-overflow: ellipsis;
+  }
+  @media (hover: hover) { #point-name:hover:not(:disabled) { border-color: var(--line); } }
+  #point-name:focus { outline: none; border-color: var(--accent); background: rgba(0,0,0,.22); }
+  #point-name:disabled { opacity: 1; color: var(--chalk-dim); }
+
+  /* ---- Main area. Default (phone / tablet upright): court, then the shot row and the control row. */
+  .app {
+    flex: 1; min-height: 0; display: grid; gap: 6px;
+    padding: 0 8px 8px; padding-bottom: max(8px, env(safe-area-inset-bottom));
+    grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto;
+    grid-template-areas: "court" "panel";
+  }
+  .court-card { grid-area: court; min-height: 0; min-width: 0; position: relative; }
+  #court { display: block; width: 100%; height: 100%; touch-action: none; user-select: none; -webkit-user-select: none; }
+  .piece { cursor: grab; }
+  .piece.dragging { cursor: grabbing; }
+  #court.playing .piece { cursor: inherit; }
+  #caption {
+    /* Sits in the strip above the far baseline, clear of the ball's path over the net. */
+    position: absolute; left: 50%; top: 6px; transform: translateX(-50%); z-index: 2;
+    max-width: calc(100% - 16px); width: max-content; text-align: center; pointer-events: none;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    background: rgba(20, 28, 26, .8); border: 1px solid var(--line); border-radius: 8px;
+    padding: 2px 9px; font-size: .8rem; font-weight: 700; line-height: 1.4;
+  }
+  #caption[hidden] { display: none; }
+  /* Step hints are secondary: small and see-through so a player behind the far baseline still shows. */
+  #caption.hint-cap { font-weight: 500; font-size: .72rem; padding: 1px 8px; color: var(--chalk-dim);
+    background: rgba(20, 28, 26, .35); border-color: transparent; text-shadow: 0 1px 2px rgba(0, 0, 0, .8); }
+
+  .panel { grid-area: panel; display: flex; flex-direction: column; gap: 6px; min-width: 0; min-height: 0; }
+  .shot-card, .nav-card { padding: 0; border: 0; background: none; }
+  .shot-row { display: flex; flex-wrap: nowrap; gap: 4px; }
+  .shot-row[hidden] { display: none !important; }
+  .shot-row .seg { flex: 1 1 0; min-width: 0; display: flex; }
+  #serve-row .seg { flex: 3.2 1 0; }
+  #serve-row #btn-hand { flex: .8 1 0; min-width: 0; padding: 4px 2px; }
+  #serve-row #btn-side { flex: 1.3 1 0; min-width: 0; padding: 4px 2px; }
+  .shot-row .seg .btn { flex: 1 1 0; min-width: 0; padding: 4px 2px; }
+
+  /* [… ][◀][n打目][▶][▶ 再生][＋ 次の打球]: the most used button sits under the right thumb. */
+  .nav-row { display: flex; flex-wrap: nowrap; gap: 4px; align-items: center; }
+  .nav-row .btn { flex: 1 1 0; min-width: 0; min-height: 46px; padding: 4px; overflow: hidden; text-overflow: ellipsis; }
+  .nav-row #btn-more { flex: .8 1 0; font-size: 1.15rem; font-weight: 700; letter-spacing: .06em; }
+  .nav-row #btn-play { flex: 1.5 1 0; }
+  .nav-row #btn-add-frame { flex: 2.1 1 0; }
+  .frame-info { flex: 1.3 1 0; min-width: 0; text-align: center; line-height: 1.1; font-weight: 700; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .frame-info .of { font-weight: 500; color: var(--chalk-dim); margin-left: 3px; font-size: .85em; }
+  .frame-info .start-label { font-size: .85em; }
+  body[data-layout="phone"] .frame-info .of { display: none; }
+  .frames-strip { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; min-height: 28px; }
+  .frame-dot {
+    min-width: 30px; height: 30px; border-radius: 6px; border: 1px solid var(--line);
+    background: transparent; cursor: pointer; font-size: .82rem; font-variant-numeric: tabular-nums;
+  }
+  .frame-dot.cur { background: var(--ball); color: #1b2410; border-color: transparent; font-weight: 700; }
+  .frames-empty { color: var(--chalk-dim); font-size: .82rem; }
+
+  /* ---- 「…」 menu: rarely used actions. The ones used most sit lowest, nearest the thumb. */
+  .menu-items { display: grid; gap: 6px; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .menu-items .full { grid-column: 1 / -1; }
+  .menu-items .btn { text-align: left; overflow: hidden; text-overflow: ellipsis; }
+  .menu-items .ic { display: inline-block; width: 1.3em; text-align: center; margin-right: 2px; }
+  .speed-row { display: flex; align-items: center; gap: 8px; }
+  .speed-row .label { font-size: .85rem; color: var(--chalk-dim); white-space: nowrap; }
+  .speed-row .seg { flex: 1; display: flex; }
+  .speed-row .seg .btn { flex: 1 1 0; min-width: 0; padding: 4px 2px; font-variant-numeric: tabular-nums; text-align: center; }
+
+  /* ---- 陣形 (start arrangements, shown only on the スタート step) */
+  .preset-group { margin-bottom: 8px; display: flex; gap: 8px; align-items: flex-start; }
+  .preset-group .label { font-size: .78rem; color: var(--chalk-dim); width: 5.4em; flex: none; padding-top: 10px; line-height: 1.3; }
+  .preset-group .row { flex: 1; min-width: 0; }
+  .btn.preset.active { border-color: var(--accent); color: var(--accent); }
+  /* a phone held sideways: two columns so it all fits the height */
+  body[data-layout="land"] #presets { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: 12px; }
+  body[data-layout="land"] #presets > :first-child, body[data-layout="land"] #presets > .people-hint { grid-column: 1 / -1; }
+  body[data-layout="land"] #presets > .formations { grid-column: 1 / -1; order: 2; }
+  body[data-layout="land"] #presets > .mine-group { order: 1; }
+  body[data-layout="land"] #presets .people-hint { margin: 0; order: 3; }
+  body[data-layout="land"] #presets .preset-group { margin-bottom: 6px; }
+  .mine { display: inline-flex; }
+  .mine .preset { border-radius: 8px 0 0 8px; }
+  .mine .del { border-radius: 0 8px 8px 0; margin-left: -1px; padding: 4px 8px; }
+  .preset-empty { font-size: .8rem; color: var(--chalk-dim); }
+  .legend { display: flex; flex-wrap: wrap; gap: 12px; font-size: .82rem; color: var(--chalk-dim); margin-top: 10px; }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 3px; vertical-align: -1px; }
+  .legend i + span { margin-left: 2px; }
+
+  /* ---- Point list */
+  .saved-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; grid-template-columns: minmax(0, 1fr); }
+  .saved-list li {
+    display: flex; align-items: center; gap: 6px; padding: 5px 6px 5px 10px;
+    border: 1px solid var(--line); border-radius: 8px; background: rgba(0,0,0,.12);
+  }
+  .saved-list li.current { border-color: var(--accent); }
+  .saved-list li.child { margin-left: 16px; }
+  .saved-list .open { flex: 1; min-width: 0; text-align: left; background: none; border: 0; padding: 2px 0; cursor: pointer; }
+  .saved-list .open:disabled { cursor: default; }
+  .saved-list .name { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .saved-list .meta { display: block; font-size: .74rem; color: var(--chalk-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .saved-list .tag { font-size: .7rem; color: #1b2410; background: var(--accent); border-radius: 4px; padding: 0 5px; margin-right: 6px; font-weight: 700; }
+  .saved-list .btn.small { padding: 4px 8px; font-size: .84rem; flex: none; }
+  .saved-list .empty { color: var(--chalk-dim); font-size: .85rem; border-style: dashed; justify-content: center; }
+
+  /* ---- Overlays (list, 陣形, 「…」): a bottom sheet on a phone, a drawer / small pop-up on tablets
+     and phones held sideways, and plain columns / cards on a wide screen. */
+  body:not([data-layout="wide"]) .overlay {
+    position: fixed; z-index: 20; overflow-y: auto; overscroll-behavior: contain;
+    visibility: hidden; box-shadow: 0 8px 30px rgba(0,0,0,.45);
+  }
+  body[data-layout="phone"] .overlay {
+    left: 0; right: 0; bottom: 0; max-height: 85vh; max-height: 85svh;
+    border-radius: 14px 14px 0 0; padding: 12px 12px max(14px, env(safe-area-inset-bottom));
+    transform: translateY(105%); transition: transform .22s ease, visibility 0s .22s;
+  }
+  body[data-layout="phone"] .overlay.open { transform: none; visibility: visible; transition: transform .22s ease; }
+  body[data-layout="tall"] .overlay, body[data-layout="land"] .overlay { opacity: 0; transition: opacity .15s, visibility 0s .15s; }
+  body[data-layout="tall"] .overlay.open, body[data-layout="land"] .overlay.open { opacity: 1; visibility: visible; transition: opacity .15s; }
+  body[data-layout="tall"] #library, body[data-layout="land"] #library {
+    left: 0; top: 0; bottom: 0; width: min(380px, 92vw); border-radius: 0 14px 14px 0;
+    padding-top: max(12px, env(safe-area-inset-top));
+  }
+  #backdrop { display: none; }
+  #backdrop.open { display: block; position: fixed; inset: 0; z-index: 19; }
+  #backdrop.dim { background: rgba(0,0,0,.5); }
+  body[data-layout="phone"] .overlay input { font-size: 16px; } /* prevents iOS zoom on focus */
+
+  /* Phone held sideways / small tablet landscape: court on the left, everything else on the right. */
+  body[data-layout="land"] {
+    display: grid; gap: 6px 10px; padding: 8px; padding-right: max(8px, env(safe-area-inset-right)); padding-left: max(8px, env(safe-area-inset-left));
+    grid-template-columns: calc((100vh - 16px) * var(--court-k)) minmax(0, 1fr);
+    grid-template-columns: calc((100svh - 16px) * var(--court-k)) minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr); grid-template-areas: "court top" "court panel";
+  }
+  body[data-layout="land"] .app, body[data-layout="wide"] .app { display: contents; }
+  body[data-layout="land"] .topbar, body[data-layout="wide"] .topbar { grid-area: top; padding: 0; }
+  body[data-layout="land"] .panel { justify-content: flex-end; }
+
+  /* Tablet landscape / PC: list | court | controls, nothing hidden behind 「…」. */
+  body[data-layout="wide"] {
+    display: grid; gap: 8px 14px; padding: 10px 14px; justify-content: center;
+    grid-template-columns: 320px calc((100vh - 20px) * var(--court-k)) minmax(340px, 540px);
+    grid-template-columns: 320px calc((100svh - 20px) * var(--court-k)) minmax(340px, 540px);
+    grid-template-rows: auto minmax(0, 1fr); grid-template-areas: "list court top" "list court panel";
+  }
+  body[data-layout="wide"].list-collapsed {
+    grid-template-columns: calc((100vh - 20px) * var(--court-k)) minmax(340px, 540px);
+    grid-template-columns: calc((100svh - 20px) * var(--court-k)) minmax(340px, 540px);
+    grid-template-areas: "court top" "court panel";
+  }
+  body[data-layout="wide"].list-collapsed #library { display: none; }
+  body[data-layout="wide"] #library { grid-area: list; min-height: 0; overflow-y: auto; }
+  body[data-layout="wide"] .panel { overflow-y: auto; gap: 10px; }
+  body[data-layout="wide"] .nav-row #btn-add-frame { flex: 2.8 1 0; }
+  body[data-layout="wide"] .shot-card, body[data-layout="wide"] .nav-card { padding: 12px; border: 1px solid var(--line); background: var(--panel); }
+  body[data-layout="wide"] .card > h2 { margin-bottom: 8px; }
+  body[data-layout="wide"]:not(.at-start) #presets-card { display: none; }
+  body:not([data-layout="phone"]) .shot-row .btn { min-height: 44px; }
+  body[data-layout="phone"] .shot-row .btn { min-height: 40px; }
+  body[data-layout="phone"] .saved-list .btn.small, body[data-layout="phone"] .preset-group .btn { min-height: 36px; }
+
+  #toast {
+    position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%) translateY(20px);
+    background: var(--chalk); color: #1b2410; padding: 8px 14px; border-radius: 8px;
+    font-weight: 700; opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s;
+    max-width: calc(100vw - 32px); text-align: center; z-index: 30;
+  }
+  #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  body[data-layout="phone"] #toast { font-size: .8rem; padding: 6px 10px; bottom: auto; top: 50px; transform: translateX(-50%) translateY(-10px); }
+  body[data-layout="phone"] #toast.show { transform: translateX(-50%) translateY(0); }
+</style>
+</head>
+<body data-layout="phone">
+<header class="topbar">
+  <button class="btn" id="btn-library" aria-label="ポイント一覧" title="ポイント一覧" data-i18n-aria="list.title" data-i18n-title="list.title">☰</button>
+  <input id="point-name" type="text" maxlength="40" aria-label="ポイントの名前(タップで変更)" title="タップして名前を変更" data-i18n-aria="name.aria" data-i18n-title="name.title">
+  <button class="btn small start-only not-wide" id="btn-presets" title="スタートの並びを陣形から選ぶ" data-i18n-title="presets.pick" data-i18n="presets.button">陣形</button>
+</header>
+
+<main class="app">
+  <aside class="card overlay library" id="library" aria-label="ポイント一覧" data-i18n-aria="list.title">
+    <div class="sheet-head">
+      <h2 data-i18n="list.title">ポイント一覧</h2>
+      <button class="btn small primary" id="btn-new-point" data-i18n="list.new">＋ 新規</button>
+      <button class="btn small not-wide" data-close data-i18n="close">閉じる</button>
+    </div>
+    <p class="hint" style="margin:0 0 8px" data-i18n="list.hint">自動で保存されます。名前をタップで開きます。</p>
+    <ul class="saved-list" id="list-points"></ul>
+    <h3 data-i18n="list.samples">サンプル(見るだけ。編集すると一覧にコピー)</h3>
+    <ul class="saved-list" id="list-samples"></ul>
+  </aside>
+
+  <div class="court-card">
+    <div id="caption" hidden></div>
+    <svg id="court" viewBox="-18 -28 146 294" aria-label="テニスコート" data-i18n-aria="court">
+      <defs>
+        <marker id="mk-ball" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="#e4f04a"/>
+        </marker>
+      </defs>
+      <rect id="court-bg" x="-18" y="-28" width="146" height="294" fill="#255b58" rx="4"/>
+      <g id="court-lines"></g>
+      <g id="layer-moves"></g>
+      <g id="layer-trail"></g>
+      <g id="layer-pieces"></g>
+    </svg>
+  </div>
+
+  <div class="panel">
+    <section class="card overlay presets-card" id="presets-card" aria-label="陣形" data-i18n-aria="presets.button">
+      <div class="sheet-head">
+        <h2 data-i18n="presets.title">陣形(スタートの並び)</h2>
+        <button class="btn small not-wide" data-close data-i18n="close">閉じる</button>
+      </div>
+      <div id="presets"></div>
+    </section>
+
+    <section class="card shot-card" aria-label="この打球のショット" data-i18n-aria="shot.aria">
+      <h2 class="only-wide" id="shot-title">この打球</h2>
+      <div class="row shot-row" id="rally-row">
+        <div class="seg" role="group" aria-label="球種" data-i18n-aria="shot.kind">
+          <button class="btn small" data-shot="normal" data-i18n="shot.normal">通常</button>
+          <button class="btn small" data-shot="lob" data-i18n="shot.lob">ロブ</button>
+          <button class="btn small" data-shot="hard" data-i18n="shot.hard">強打</button>
+        </div>
+      </div>
+      <div class="row shot-row" id="serve-row" hidden>
+        <div class="seg" role="group" aria-label="サーブの種類" data-i18n-aria="serve.kind">
+          <button class="btn small" data-serve="flat" data-i18n="shot.flat">フラット</button>
+          <button class="btn small" data-serve="slice" data-i18n="shot.slice">スライス</button>
+          <button class="btn small" data-serve="kick" data-i18n="shot.kick">キック</button>
+        </div>
+        <button class="btn small" id="btn-hand" aria-label="利き手" data-i18n-aria="serve.hand"></button>
+        <button class="btn small" id="btn-side" aria-label="デュース/アド" data-i18n-aria="serve.side"></button>
+      </div>
+    </section>
+
+    <section class="card nav-card" aria-label="打球の送り・再生" data-i18n-aria="nav.aria">
+      <div class="nav-row">
+        <button class="btn not-wide" id="btn-more" aria-label="その他の操作" title="その他の操作" data-i18n-aria="menu.title" data-i18n-title="menu.title">…</button>
+        <button class="btn" id="btn-prev" aria-label="前の打球へ" title="前の打球へ(←)" data-i18n-aria="nav.prev" data-i18n-title="nav.prevKey">◀</button>
+        <span class="frame-info" id="frame-info"></span>
+        <button class="btn" id="btn-next" aria-label="次の打球へ" title="次の打球へ(→)" data-i18n-aria="nav.next" data-i18n-title="nav.nextKey">▶</button>
+        <button class="btn on" id="btn-play" title="再生 / 停止(Space)" data-i18n-title="nav.playKey">▶ 再生</button>
+        <button class="btn primary" id="btn-add-frame" title="次の打球を追加(Enter)" data-i18n-title="nav.addKey"></button>
+      </div>
+      <div class="frames-strip only-wide" id="frames-strip"></div>
+    </section>
+
+    <section class="card overlay menu" id="menu" aria-label="その他の操作" data-i18n-aria="menu.title">
+      <h2 class="only-wide" data-i18n="menu.title">その他の操作</h2>
+      <div class="menu-items">
+        <button class="btn full start-only not-wide" id="btn-menu-save-formation"><span class="ic">＋</span><span data-i18n="presets.saveLong">今の並びをマイ陣形に保存</span></button>
+        <button class="btn" id="btn-export" title="表示中のポイントを文字にしてコピーする(送ったり、残しておいたりできる)" data-i18n-title="menu.exportTitle"><span class="ic">⇪</span><span data-i18n="menu.export">書き出す</span></button>
+        <button class="btn" id="btn-import" title="書き出した文字を貼り付けて、ポイントを一覧に追加する" data-i18n-title="menu.importTitle"><span class="ic">⇩</span><span data-i18n="menu.import">読み込む</span></button>
+        <div class="speed-row full">
+          <span class="label" data-i18n="menu.speed">再生速度</span>
+          <div class="seg" role="group" aria-label="再生速度" data-i18n-aria="menu.speed" id="speed-seg"></div>
+        </div>
+        <div class="speed-row full">
+          <span class="label" data-i18n="menu.autoShift" title="打った側はボールの行った側へ、受ける側のパートナーは返球する人について、横に一緒にずれる" data-i18n-title="menu.autoShiftTitle">ペアの平行移動</span>
+          <div class="seg" role="group" aria-label="ペアの平行移動" data-i18n-aria="menu.autoShift" id="auto-shift-seg"></div>
+        </div>
+        <div class="speed-row full">
+          <span class="label" data-i18n="menu.lang">言語</span>
+          <div class="seg" role="group" aria-label="言語" data-i18n-aria="menu.lang" id="lang-seg"></div>
+        </div>
+        <button class="btn" id="btn-first" title="1打目へ" data-i18n-title="menu.firstTitle"><span class="ic">⏮</span><span data-i18n="menu.first">最初の打球</span></button>
+        <button class="btn" id="btn-last" title="最後の打球へ" data-i18n-title="menu.lastTitle"><span class="ic">⏭</span><span data-i18n="menu.last">最後の打球</span></button>
+        <button class="btn" id="btn-reset-point" title="今のスタートの並びから新しいポイントを作る(今のポイントは一覧に残ります)" data-i18n-title="menu.newTitle"><span class="ic">＋</span><span data-i18n="menu.new">新規ポイント</span></button>
+        <button class="btn danger" id="btn-del-frame" title="表示中の打球を削除" data-i18n-title="menu.delTitle"><span class="ic">−</span><span data-i18n="menu.del">この打球を削除</span></button>
+        <button class="btn full" id="btn-copy-here" title="スタートから表示中の打球までを新しいポイントにする" data-i18n-title="menu.copyTitle"><span class="ic">⧉</span><span id="copy-here-label">ここからコピー</span></button>
+      </div>
+      <p class="hint only-wide" id="mode-hint"></p>
+      <p class="hint only-wide" data-i18n="menu.keys">キーボード:← → 打球の送り / Space 再生・停止 / Enter 次の打球</p>
+      <div class="legend only-wide">
+        <span><i style="background:var(--p1)"></i><i style="background:var(--p2)"></i><span data-i18n="legend.own">自分たち(1・2)</span></span>
+        <span><i style="background:var(--pA)"></i><i style="background:var(--pB)"></i><span data-i18n="legend.opp">相手(A・B)</span></span>
+        <span><i style="background:var(--ball)"></i><span data-i18n="legend.ball">ボール</span></span>
+      </div>
+    </section>
+  </div>
+</main>
+<div id="backdrop"></div>
+
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script>
+(() => {
+  'use strict';
+
+  // Small pure helpers shared by the model and the screen.
+  // ---- Small helpers
+  const ptOrNull = (v) => (v && isFinite(v.x) && isFinite(v.y) ? { x: +v.x, y: +v.y } : null);
+  // Lines stay this far inside the drawing so their arrowheads fit.
+  const EDGE = 4;
+  const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+
+  const clone = (o) => JSON.parse(JSON.stringify(o));
+  const lerp = (a, b, t) => a + (b - a) * t;
+  const ease = (t) => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2);
+
+  // Court geometry, pieces and shot kinds (1 unit = 10cm).
+  // ---- Geometry (1 unit = 10cm). Doubles court 10.97m x 23.77m. Our side is the bottom half.
+  const W = 109.7, L = 237.7, NET = L / 2, ALLEY = 13.7, SVC = 64;
+  const VB = { x: -18, y: -28, w: 146, h: 294 };
+  const R_PLAYER = 7.5, R_BALL = 3.6;
+  const COLORS = { own: '#f5a524', opp: '#e0449b', ball: '#e4f04a', chalk: '#eef2e6', court: '#2f7470' };
+  // Each player their own colour, in the warm (us) or pink-violet (them) range of their team.
+  const PLAYER_COLORS = { p1: '#f5a524', p2: '#ff6f4e', A: '#e0449b', B: '#a57bff' };
+  const PIECES = [
+    { id: 'p1', team: 'own', label: '1' },
+    { id: 'p2', team: 'own', label: '2' },
+    { id: 'A', team: 'opp', label: 'A' },
+    { id: 'B', team: 'opp', label: 'B' },
+    { id: 'ball', team: 'ball', label: '' },
+  ];
+  const PLAYERS = PIECES.filter((p) => p.id !== 'ball');
+  // A frame is the moment someone hits the ball; its `shot` describes that hit (names in strings.js: shot.<kind>).
+  // ms = flight time to the next hitter, peak = height of the arc before / after the bounce.
+  const SHOT_TYPES = {
+    normal: { ms: 1000, peak: [0.35, 0.15] },
+    lob:    { ms: 1700, peak: [1, 0.3] },
+    hard:   { ms: 620,  peak: [0.12, 0.06] },
+    // Serves (1打目 only). Kick is slower and jumps high after the bounce; flat and slice stay low.
+    flat:   { ms: 760,  peak: [0.2, 0.1] },
+    slice:  { ms: 900,  peak: [0.26, 0.06] },
+    kick:   { ms: 1100, peak: [0.38, 0.45] },
+  };
+
+  // Players stay in their own half: ours below the net, theirs above it (a little short of the net).
+  const NET_GAP = 2;
+  const TEAM_OF = Object.fromEntries(PIECES.map((p) => [p.id, p.team]));
+  function keepOnSide(team, pos) {
+    if (team === 'own') return pos.y < NET + NET_GAP ? { x: pos.x, y: NET + NET_GAP } : pos;
+    if (team === 'opp') return pos.y > NET - NET_GAP ? { x: pos.x, y: NET - NET_GAP } : pos;
+    return pos;
+  }
+  // The same for every player of a set of positions (returns a new object).
+  function keepSidesOf(set) {
+    const out = { ...set };
+    for (const p of PLAYERS) if (out[p.id]) out[p.id] = keepOnSide(p.team, out[p.id]);
+    return out;
+  }
+
+  // Serve rules: legal serving spot, service box, deuce / ad, serve shapes. See CLAUDE.md.
+
+  // ---- Serve (1打目 is always a serve). See CLAUDE.md for the rules.
+  const SERVE_KINDS = ['flat', 'slice', 'kick'];
+  const DEG = Math.PI / 180;
+  // Shape for a right-hander, relative to the server's right; left-handers mirror it.
+  // bendK: sideways curve in the air (control point offset / length; + = bulges to the server's right,
+  // so a ball curving LEFT bulges right), turn: change of direction at the bounce (+ = to the right),
+  // extK: length after the bounce (/ length before it).
+  const SERVE_SHAPES = {
+    flat:  { bendK: 0,    turn: 0,         extK: 0.45 }, // straight and long
+    slice: { bendK: 0.18, turn: -15 * DEG, extK: 0.32 }, // curves left, keeps sliding left
+    kick:  { bendK: 0.07, turn: 20 * DEG,  extK: 0.26 }, // curves a little left, jumps right
+  };
+  const serveShape = (kind, hand) => {
+    const sh = SERVE_SHAPES[kind], m = hand === 'L' ? -1 : 1;
+    return { bendK: sh.bendK * m, turn: sh.turn * m, extK: sh.extK };
+  };
+  const isServe = (st) => !!(st && st.shot && st.shot.serve);
+  const servesUp = (ball) => ball.y > NET; // our pair (bottom) serves towards the top
+  // Deuce = the server's right of the centre mark; facing up that is the right half of the drawing.
+  const guessSide = (ball) => ((servesUp(ball) ? ball.x >= W / 2 : ball.x <= W / 2) ? 'deuce' : 'ad');
+  // The serve is hit from behind the baseline, between the centre mark and the doubles sideline, and the
+  // server stands there until it is hit. up = the serving pair is ours (bottom, serving up the drawing).
+  function clampServeSpot(side, up, pos) {
+    const rightHalf = (side === 'deuce') === up;
+    return {
+      x: rightHalf ? clamp(pos.x, W / 2, W) : clamp(pos.x, 0, W / 2),
+      y: up ? clamp(pos.y, L, VB.y + VB.h - 3) : clamp(pos.y, VB.y + 3, 0),
+    };
+  }
+  // The serve ball: which pair serves follows from which side of the net it is on.
+  const clampServeBall = (side, pos) => clampServeSpot(side, servesUp(pos), pos);
+  // The server: the player of the serving pair closest to the serve ball.
+  function serverId(st) {
+    const team = servesUp(st.pieces.ball) ? 'own' : 'opp';
+    let best = null, bestD = Infinity;
+    for (const p of PLAYERS) {
+      if (p.team !== team) continue;
+      const d = Math.hypot(st.pieces[p.id].x - st.pieces.ball.x, st.pieces[p.id].y - st.pieces.ball.y);
+      if (d < bestD) { best = p.id; bestD = d; }
+    }
+    return best;
+  }
+  // It must land in the diagonal service box (singles width, lines are in).
+  function serveBox(st) {
+    const up = servesUp(st.pieces.ball), leftHalf = (st.shot.serve.side === 'deuce') === up;
+    return { x0: leftHalf ? ALLEY : W / 2, x1: leftHalf ? W / 2 : W - ALLEY, y0: up ? NET - SVC : NET, y1: up ? NET : NET + SVC };
+  }
+  function clampLand(st, pos) {
+    const b = serveBox(st);
+    return { x: clamp(pos.x, b.x0, b.x1), y: clamp(pos.y, b.y0, b.y1) };
+  }
+  // Make a state the serve: give it serve settings if it has none, and keep the ball and × legal.
+  function ensureServe(st) {
+    const sh = st.shot;
+    if (!sh.serve) {
+      const kind = SERVE_KINDS.includes(sh.type) ? sh.type : 'flat';
+      sh.type = kind;
+      sh.serve = { hand: 'R', side: guessSide(st.pieces.ball), ...serveShape(kind, 'R') };
+    }
+    st.pieces.ball = clampServeBall(sh.serve.side, st.pieces.ball);
+    sh.land = clampLand(st, sh.land);
+    return st;
+  }
+  const stripCatch = (st) => { delete st.catch; delete st.start; };
+  function stripServe(st) {
+    if (!st.shot.serve) return;
+    delete st.shot.serve;
+    if (SERVE_KINDS.includes(st.shot.type)) st.shot.type = 'normal';
+  }
+  // Deuce <-> ad: the serving pair mirrors left-right; the receiving pair keeps its sides and swaps
+  // front and back (the other receiver now returns). The ball and × mirror too; the spin does not.
+  function flipServeSide(f) {
+    const up = servesUp(f.pieces.ball), servingTeam = up ? 'own' : 'opp';
+    const receivers = PLAYERS.filter((p) => p.team !== servingTeam).map((p) => p.id);
+    for (const set of [f.pieces, f.start].filter(Boolean)) {
+      for (const p of PLAYERS) if (p.team === servingTeam) set[p.id] = { x: W - set[p.id].x, y: set[p.id].y };
+      const [r1, r2] = receivers, y1 = set[r1].y;
+      set[r1] = { x: set[r1].x, y: set[r2].y };
+      set[r2] = { x: set[r2].x, y: y1 };
+    }
+    f.pieces.ball = { x: W - f.pieces.ball.x, y: f.pieces.ball.y };
+    f.shot.land = { x: W - f.shot.land.x, y: f.shot.land.y };
+    f.shot.serve.side = f.shot.serve.side === 'deuce' ? 'ad' : 'deuce';
+    ensureServe(f);
+  }
+
+  // A shot's simulated line (hit -> × -> straight on) and where on it the next ball is taken.
+
+  // ---- Shot line
+  // A shot is a simulated line: hit -> × (leg 0) and, if it bounces, × -> straight on (leg 1, 30% of leg 0 per unit t).
+  // The next frame returns the ball somewhere on it: catch = { leg, t }. Taking it on leg 0 of a bouncing
+  // shot means a volley before the bounce. Leg 1 may run past its drawn end (t > 1) for a deeper return.
+  const EXT_K = 0.3, T_MAX1 = 3;
+  const fullCatch = (st) => (st.shot.bounce ? { leg: 1, t: 1 } : { leg: 0, t: 1 });
+  const unit = (v) => { const l = Math.hypot(v.x, v.y) || 1; return { x: v.x / l, y: v.y / l }; };
+  const rightOf = (u) => ({ x: -u.y, y: u.x }); // right-hand side of travel (drawing y points down)
+  // Shape of a shot: leg 0 hit -> × (straight, or a curve for a serve), leg 1 from × in `dir` for len1 per t.
+  function geom(st) {
+    const a = st.pieces.ball, b = st.shot.land;
+    const L0 = Math.hypot(b.x - a.x, b.y - a.y) || 1, u = { x: (b.x - a.x) / L0, y: (b.y - a.y) / L0 };
+    if (!isServe(st)) return { a, b, ctrl: null, dir: u, len1: EXT_K * L0, L0 };
+    const sv = st.shot.serve, r = rightOf(u);
+    const ctrl = sv.bendK ? { x: (a.x + b.x) / 2 + r.x * sv.bendK * L0, y: (a.y + b.y) / 2 + r.y * sv.bendK * L0 } : null;
+    const inc = ctrl ? unit({ x: b.x - ctrl.x, y: b.y - ctrl.y }) : u, ri = rightOf(inc);
+    const c = Math.cos(sv.turn), sn = Math.sin(sv.turn);
+    return { a, b, ctrl, inc, dir: { x: inc.x * c + ri.x * sn, y: inc.y * c + ri.y * sn }, len1: sv.extK * L0, L0 };
+  }
+  function leg0At(g, t) {
+    if (!g.ctrl) return { x: lerp(g.a.x, g.b.x, t), y: lerp(g.a.y, g.b.y, t) };
+    const k0 = (1 - t) * (1 - t), k1 = 2 * (1 - t) * t, k2 = t * t;
+    return { x: k0 * g.a.x + k1 * g.ctrl.x + k2 * g.b.x, y: k0 * g.a.y + k1 * g.ctrl.y + k2 * g.b.y };
+  }
+  // How far leg 1 can run (in t) before leaving the drawing: it is shortened there, never bent.
+  function tMax1(st, g = geom(st)) {
+    const b = g.b, d = { x: g.dir.x * g.len1, y: g.dir.y * g.len1 };
+    let t = T_MAX1;
+    const lim = (pos, dir, lo, hi) => { if (dir > 0) t = Math.min(t, (hi - pos) / dir); else if (dir < 0) t = Math.min(t, (lo - pos) / dir); };
+    lim(b.x, d.x, VB.x + EDGE, VB.x + VB.w - EDGE);
+    lim(b.y, d.y, VB.y + EDGE, VB.y + VB.h - EDGE);
+    return Math.max(0, t);
+  }
+  function catchPoint(st, c) {
+    const g = geom(st);
+    if (c.leg === 0) return leg0At(g, c.t);
+    const t = Math.min(c.t, tMax1(st, g));
+    return { x: g.b.x + g.dir.x * g.len1 * t, y: g.b.y + g.dir.y * g.len1 * t };
+  }
+  // The other pair can only play the ball once it has crossed the net: the share of leg 0 before that
+  // (0 when leg 0 does not cross it). Serves are only returned after the bounce anyway.
+  function netT(st) {
+    const a = st.pieces.ball, b = st.shot.land;
+    if (isServe(st) || (a.y > NET) === (b.y > NET) || a.y === b.y) return 0;
+    return Math.ceil(((NET - a.y) / (b.y - a.y)) * 1000) / 1000;
+  }
+  // Nearest point of the shot's line to pos, where the next ball may be taken: after the net, and for a
+  // serve only after it bounces.
+  function projectCatch(st, pos) {
+    const g = geom(st);
+    let best = null;
+    if (!isServe(st)) {
+      if (!g.ctrl) {
+        const dx = g.b.x - g.a.x, dy = g.b.y - g.a.y, L2 = dx * dx + dy * dy, t0 = netT(st);
+        const t = L2 ? clamp(((pos.x - g.a.x) * dx + (pos.y - g.a.y) * dy) / L2, t0, 1) : t0;
+        best = { leg: 0, t, d: Math.hypot(g.a.x + dx * t - pos.x, g.a.y + dy * t - pos.y) };
+      } else {
+        for (let i = 0; i <= 60; i++) {
+          const q = leg0At(g, i / 60), d = Math.hypot(q.x - pos.x, q.y - pos.y);
+          if (!best || d < best.d) best = { leg: 0, t: i / 60, d };
+        }
+      }
+    }
+    if (st.shot.bounce) {
+      const dx = g.dir.x * g.len1, dy = g.dir.y * g.len1, L2 = dx * dx + dy * dy;
+      const t = L2 ? clamp(((pos.x - g.b.x) * dx + (pos.y - g.b.y) * dy) / L2, 0, tMax1(st, g)) : 0;
+      const d = Math.hypot(g.b.x + dx * t - pos.x, g.b.y + dy * t - pos.y);
+      if (!best || d < best.d) best = { leg: 1, t, d };
+    }
+    const t = Math.round(best.t * 1000) / 1000;
+    return { leg: best.leg, t: best.leg === 0 ? Math.max(t, netT(st)) : t };
+  }
+  // A return point the rules allow: a serve only after its bounce, any other ball only after the net.
+  function validCatch(st, c) {
+    if (!(c && ((c.leg === 0 && !isServe(st)) || (c.leg === 1 && st.shot.bounce)))) return fullCatch(st);
+    const t0 = netT(st);
+    return c.leg === 0 && c.t < t0 ? { leg: 0, t: t0 } : c;
+  }
+  // Frames before this model stored only the return point: put × on the line to it so it stays put.
+  function fixCatches(fr) {
+    if (fr[0]) { delete fr[0].catch; ensureServe(fr[0]); }
+    for (let k = 1; k < fr.length; k++) {
+      const a = fr[k - 1], f = fr[k];
+      stripServe(f);
+      if (!f.catch && isServe(a)) {
+        // Put × (inside the box) on the line to the old return point, then take the return after the bounce.
+        const hit = a.pieces.ball, nb = f.pieces.ball;
+        a.shot.land = clampLand(a, { x: lerp(hit.x, nb.x, 0.65), y: lerp(hit.y, nb.y, 0.65) });
+        f.catch = projectCatch(a, nb);
+      }
+      if (!f.catch) {
+        const hit = a.pieces.ball, nb = f.pieces.ball, L = Math.hypot(nb.x - hit.x, nb.y - hit.y) || 1;
+        if (!a.shot.volley) {
+          const b = a.shot.land;
+          const t = Math.max(0.3, Math.min(0.97, ((b.x - hit.x) * (nb.x - hit.x) + (b.y - hit.y) * (nb.y - hit.y)) / (L * L)));
+          a.shot.land = { x: lerp(hit.x, nb.x, t), y: lerp(hit.y, nb.y, t) };
+          const ext = EXT_K * t * L;
+          f.catch = { leg: 1, t: ext > 0 ? Math.min(T_MAX1, ((1 - t) * L) / ext) : 1 };
+        } else {
+          a.shot.land = { ...nb };
+          f.catch = { leg: 0, t: 1 };
+        }
+      }
+      f.catch = validCatch(a, f.catch);
+      f.pieces.ball = catchPoint(a, f.catch);
+    }
+    for (const f of fr) delete f.shot.volley;
+    return fr;
+  }
+
+
+  // ◇: the curve's control point sits twice as far from the chord as its midpoint.
+  function setServeBend(st, pos) {
+    const a = st.pieces.ball, b = st.shot.land, L0 = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+    const r = rightOf({ x: (b.x - a.x) / L0, y: (b.y - a.y) / L0 });
+    const k = (2 * ((pos.x - (a.x + b.x) / 2) * r.x + (pos.y - (a.y + b.y) / 2) * r.y)) / L0;
+    st.shot.serve.bendK = Math.abs(k) < 0.02 ? 0 : Math.round(clamp(k, -0.45, 0.45) * 1000) / 1000;
+  }
+  // ○: direction (turn from the incoming path) and length of the line after the bounce.
+  function setServeAfter(st, pos) {
+    const g = geom(st), v = { x: pos.x - g.b.x, y: pos.y - g.b.y }, ri = rightOf(g.inc);
+    const turn = Math.atan2(v.x * ri.x + v.y * ri.y, v.x * g.inc.x + v.y * g.inc.y);
+    st.shot.serve.turn = Math.round(clamp(turn, -80 * DEG, 80 * DEG) * 1000) / 1000;
+    st.shot.serve.extK = Math.round(clamp(Math.hypot(v.x, v.y) / g.L0, 0.05, 1.2) * 1000) / 1000;
+  }
+
+  // Saved data: normalising, migrating older formats.
+
+  function normalize(s) {
+    const out = { pieces: keepSidesOf(clone(s.pieces)) }; // a player over the net goes back to their side
+    const sh = s.shot || {};
+    // land (×): where the ball bounces, or where the next player takes it out of the air when bounce is off.
+    // Older data stored the bounce point as `bounce` and a volley target as `after`; curves are dropped.
+    const oldBounce = ptOrNull(sh.bounce);
+    const land = ptOrNull(sh.land) || oldBounce || ptOrNull(sh.after) || defaultBounce(out.pieces.ball);
+    out.shot = {
+      type: SHOT_TYPES[sh.type] ? sh.type : 'normal',
+      land,
+      bounce: true,
+    };
+    // Older data could mark a shot as taken in the air; fixCatches turns that into a return before ×.
+    if (sh.bounce === false || (!sh.land && !oldBounce)) out.shot.volley = true;
+    const sv = sh.serve;
+    if (sv && SERVE_KINDS.includes(sh.type)) {
+      const num = (v, d) => (isFinite(v) ? +v : d);
+      out.shot.serve = { hand: sv.hand === 'L' ? 'L' : 'R', side: sv.side === 'ad' ? 'ad' : 'deuce',
+        bendK: num(sv.bendK, 0), turn: num(sv.turn, 0), extK: num(sv.extK, 0.45) };
+    }
+    if (typeof s.note === 'string' && s.note.trim()) out.note = s.note.trim().slice(0, 80);
+    if (s.start && PLAYERS.every((p) => ptOrNull(s.start[p.id]))) out.start = keepSidesOf(playersOf(s.start));
+    if (s.catch && (s.catch.leg === 0 || s.catch.leg === 1) && isFinite(s.catch.t)) out.catch = { leg: s.catch.leg, t: +s.catch.t };
+    // players whose move during this shot is automatic (see autoMoves); older data has none
+    if (Array.isArray(s.autoMove)) out.autoMove = PLAYERS.map((p) => p.id).filter((id) => s.autoMove.includes(id));
+    if (s.autoOn === true) out.autoOn = true; // its automatic moves have been worked out (after the line was placed)
+    return out;
+  }
+  function playersOf(src) {
+    const o = {};
+    for (const p of PLAYERS) o[p.id] = { x: +src[p.id].x, y: +src[p.id].y };
+    return o;
+  }
+  // Frame model (v2): a frame is one shot. Its ball sits at the hit point, and its players are where
+  // they END UP while that ball is in the air. Where they stood at the hit is the previous frame's
+  // players (frame 1 keeps its own `start`).
+  // Points saved before v2 placed players at the hit moment instead; shifting them by one frame
+  // keeps their animation identical.
+  function migrateV1(fr) {
+    const out = fr.map((f) => clone(f));
+    out[0].start = playersOf(fr[0].pieces);
+    fr.forEach((_, k) => {
+      const src = fr[k + 1] || fr[k];
+      for (const p of PLAYERS) out[k].pieces[p.id] = { ...src.pieces[p.id] };
+    });
+    return out;
+  }
+  function presetState(p) {
+    return normalize({ pieces: p.pieces, shot: p.shot });
+  }
+  function defaultBounce(ball) {
+    const x = Math.max(20, Math.min(90, W - ball.x));
+    return ball.y > NET ? { x, y: 62 } : { x, y: 176 };
+  }
+
+  // Built-in 陣形 and sample rallies. Their names and captions are in strings.js (group.*, preset.*, sample.*).
+  const P = (x, y) => ({ x, y });
+  // 陣形: where everyone stands before the serve (the スタート step only). Own arrangements are 「マイ陣形」.
+  const PRESETS = [
+    { id: 'serve', items: [
+      { id: 'serve-basic', pieces: { p1: P(72, 246), p2: P(30, 160), A: P(26, -6), B: P(84, 58), ball: P(76, 241) }, shot: { type: 'normal', bounce: P(40, 84) } },
+      { id: 'serve-i', pieces: { p1: P(58, 246), p2: P(55, 142), A: P(26, -6), B: P(84, 58), ball: P(62, 241) }, shot: { type: 'normal', bounce: P(42, 84) } },
+      { id: 'serve-aus', pieces: { p1: P(62, 246), p2: P(80, 146), A: P(26, -6), B: P(84, 58), ball: P(66, 241) }, shot: { type: 'normal', bounce: P(42, 84) } },
+    ]},
+    { id: 'return', items: [
+      { id: 'ret-basic', pieces: { p1: P(86, 244), p2: P(28, 180), A: P(46, -8), B: P(80, 80), ball: P(42, -4) }, shot: { type: 'normal', bounce: P(80, 200) } },
+      { id: 'ret-2back', pieces: { p1: P(86, 244), p2: P(28, 238), A: P(46, -8), B: P(80, 80), ball: P(42, -4) }, shot: { type: 'normal', bounce: P(80, 200) } },
+    ]},
+  ];
+
+  // Sample rallies: one frame per hit. S(p1, p2, A, B, ball, shotType, bounce, catch?); frame k's caption is sample.<id>.<k>.
+  // catch = where on the previous shot's line this ball is taken (else worked out from the ball).
+  const S = (p1, p2, A, B, ball, type, bounce, c) => ({
+    pieces: { p1: P(...p1), p2: P(...p2), A: P(...A), B: P(...B), ball: P(...ball) },
+    shot: { type, bounce: bounce ? P(...bounce) : null }, ...(c ? { catch: c } : {}),
+  });
+  const SAMPLES = [
+    { id: 'smp-lob', frames: [
+      S([72, 246], [30, 160], [26, -6], [84, 58], [76, 241], 'normal', [40, 84]),
+      S([74, 236], [32, 156], [28, -4], [84, 62], [30, -2], 'normal', [76, 196]),
+      S([72, 212], [34, 158], [38, 4], [82, 64], [74, 208], 'lob', [84, 16]),
+      S([66, 168], [36, 160], [80, 10], [34, 58], [82, 8], 'normal', null),
+      S([66, 164], [38, 156], [76, 16], [34, 60], [40, 152], 'hard', [62, 72]),
+    ]},
+    { id: 'smp-poach', frames: [
+      S([58, 246], [55, 142], [26, -6], [84, 58], [62, 241], 'normal', [50, 72]),
+      S([80, 236], [44, 146], [28, -4], [84, 62], [30, -2], 'normal', [42, 214]),
+      S([80, 232], [36, 146], [32, 2], [84, 64], [38, 142], 'hard', [62, 74], { leg: 0, t: 0.667 }),
+    ]},
+    { id: 'smp-change', frames: [
+      // Every point starts with a serve: 1 serves and follows it in, so the pair is at the net for the lob.
+      S([72, 246], [38, 160], [40, -4], [80, 76], [76, 241], 'normal', [50, 90]),
+      S([70, 164], [38, 160], [40, -4], [80, 76], [42, -2], 'lob', [70, 212]),
+      S([38, 172], [70, 226], [44, 14], [76, 74], [72, 222], 'lob', [34, 14]),
+      S([38, 166], [66, 190], [34, 8], [72, 76], [36, 6], 'normal', [56, 196]),
+      S([40, 162], [58, 206], [36, 12], [72, 74], [58, 202], 'normal', [74, 30]),
+    ]},
+  ];
+
+  // Every text on screen, per language. A value may use {name}-style slots; one that depends on a count
+  // is { one, other } and is picked by the `n` slot. The same keys must exist in every language
+  // (tests/unit.test.js checks it); src/index.html carries the Japanese text as written here.
+
+  const STRINGS = {
+    ja: {
+      'app.title': 'ダブルス陣形ボード',
+      'app.docTitle': '{name} - ダブルス陣形ボード',
+      'court': 'テニスコート',
+      'close': '閉じる',
+
+      'name.aria': 'ポイントの名前(タップで変更)',
+      'name.title': 'タップして名前を変更',
+      'name.placeholder': 'ポイントの名前',
+      'name.sample': 'サンプル:{name}',
+
+      'list.title': 'ポイント一覧',
+      'list.new': '＋ 新規',
+      'list.hint': '自動で保存されます。名前をタップで開きます。',
+      'list.samples': 'サンプル(見るだけ。編集すると一覧にコピー)',
+      'list.shots': { one: '{n}打', other: '{n}打' },
+      'list.current': '表示中',
+      'list.open': '「{name}」を開く',
+      'list.rename': '名前',
+      'list.renameAria': '「{name}」の名前を変更',
+      'list.copy': 'コピー',
+      'list.delete': '削除',
+      'list.deleteAria': '「{name}」を削除',
+      'list.origin': '元:{name}',
+      'list.originDeleted': '(削除済み)',
+      'list.originShot': '({n}打目から)',
+      'list.originStart': '(スタートから)',
+
+      'point.base': 'ポイント',
+      'point.resumed': '前回の続き',
+      'point.copyName': '{name} のコピー',
+      'point.fromShot': '{name} {n}打目から',
+      'point.fromStart': '{name} スタートから',
+      'point.sampleSrc': 'サンプル「{name}」',
+
+      'sample.label': 'サンプル',
+      'sample.watch': '▶ 見る',
+      'sample.smp-lob': '雁行:ロブで前衛を抜いて前へ',
+      'sample.smp-lob.1': '① 1がサーブ',
+      'sample.smp-lob.2': '② Aがクロスへリターン',
+      'sample.smp-lob.3': '③ 1が前衛Bの頭上へロブ',
+      'sample.smp-lob.4': '④ Aが返球・Bはチェンジ。1・2は前へ',
+      'sample.smp-lob.5': '⑤ 2がボレーで2人の間へ決める',
+      'sample.smp-poach': 'Iフォーメーション:ポーチで決める',
+      'sample.smp-poach.1': '① Iフォーメーションからサーブ',
+      'sample.smp-poach.2': '② リターンと同時に2がポーチ、1は右へ',
+      'sample.smp-poach.3': '③ 2がバウンド前にポーチボレー',
+      'sample.smp-change': '平行陣:ロブにチェンジで対応',
+      'sample.smp-change.1': '① 1がサーブして前へ',
+      'sample.smp-change.2': '② Aが平行陣の1の頭上へロブ',
+      'sample.smp-change.3': '③ 2が追ってチェンジ、ロブで返す',
+      'sample.smp-change.4': '④ Aが返球。2は前へ戻る',
+      'sample.smp-change.5': '⑤ 2がクロス深くへ返して立て直す',
+
+      'presets.button': '陣形',
+      'presets.pick': 'スタートの並びを陣形から選ぶ',
+      'presets.title': '陣形(スタートの並び)',
+      'presets.mine': 'マイ陣形',
+      'presets.empty': 'まだありません',
+      'presets.save': '＋ 今の並びを保存',
+      'presets.saveTitle': '今のスタートの並びをマイ陣形に保存',
+      'presets.saveLong': '今の並びをマイ陣形に保存',
+      'presets.deleteAria': 'マイ陣形「{name}」を削除',
+      'presets.defaultName': 'マイ陣形 {n}',
+      'group.serve': '自分たちのサーブ',
+      'group.return': '自分たちのリターン',
+      'scene.label': '場面',
+      'presets.formation': '陣形',
+      'preset.serve-basic': '雁行(基本)',
+      'preset.serve-i': 'Iフォーメーション',
+      'preset.serve-aus': 'オーストラリアン',
+      'preset.ret-basic': '雁行(基本)',
+      'preset.ret-2back': '2バック',
+
+      'shot.aria': 'この打球のショット',
+      'shot.title': 'この打球',
+      'shot.titleServe': '1打目(サーブ)',
+      'shot.kind': '球種',
+      'shot.normal': '通常',
+      'shot.lob': 'ロブ',
+      'shot.hard': '強打',
+      'shot.flat': 'フラット',
+      'shot.slice': 'スライス',
+      'shot.kick': 'キック',
+      'serve.kind': 'サーブの種類',
+      'serve.hand': '利き手',
+      'serve.right': '右利き',
+      'serve.rightShort': '右',
+      'serve.left': '左利き',
+      'serve.leftShort': '左',
+      'serve.side': 'デュース/アド',
+      'serve.sideTitle': 'デュース/アドを切り替え',
+      'serve.sideLocked': '「1打目へ」を押したあとは切り替えられません',
+      'serve.deuce': 'デュース',
+      'serve.ad': 'アド',
+
+      'nav.aria': '打球の送り・再生',
+      'nav.prev': '前の打球へ',
+      'nav.prevKey': '前の打球へ(←)',
+      'nav.next': '次の打球へ',
+      'nav.nextKey': '次の打球へ(→)',
+      'nav.playKey': '再生 / 停止(Space)',
+      'nav.play': '▶ 再生',
+      'nav.stop': '■ 停止',
+      'nav.addKey': '次の打球を追加(Enter)',
+      'nav.serve': '▶ 1打目へ',
+      'nav.add': '＋ 次の打球',
+      'nav.addShort': '＋ 次の打球',
+      'nav.start': 'スタート',
+      'nav.shotN': '{n}打目',
+      'strip.empty': 'まだ打球がありません。スタート位置を並べて「1打目へ」。',
+      'strip.noBounce': '(ノーバウンド)',
+      'strip.show': '{n}打目を表示',
+
+      'menu.title': 'その他の操作',
+      'menu.speed': '再生速度',
+      'menu.first': '最初の打球',
+      'menu.firstTitle': '1打目へ',
+      'menu.last': '最後の打球',
+      'menu.lastTitle': '最後の打球へ',
+      'menu.new': '新規ポイント',
+      'menu.newTitle': '今のスタートの並びから新しいポイントを作る(今のポイントは一覧に残ります)',
+      'menu.del': 'この打球を削除',
+      'menu.delTitle': '表示中の打球を削除',
+      'menu.copyTitle': 'スタートから表示中の打球までを新しいポイントにする',
+      'menu.copyStart': 'ここからコピー(スタートの並び)',
+      'menu.copyUpTo': 'ここからコピー({n}打目まで)',
+      'menu.keys': 'キーボード:← → 打球の送り / Space 再生・停止 / Enter 次の打球',
+      'legend.own': '自分たち(1・2)',
+      'legend.opp': '相手(A・B)',
+      'legend.ball': 'ボール',
+
+      'hint.playing': '再生中…',
+      'hint.start': 'スタート:サーブ前の立ち位置を並べます(ボールはサーバーについていきます)。デュース/アドはここで選び、「1打目へ」でサーブの線を作ります。',
+      'hint.shot': '選手を動かす=この打球の間にどこへ動くか(薄い丸=打った瞬間の位置、細かい点線=自動の動き)。×=弾む場所。ボールは前の打球の線の上で返球位置を選べます(×より手前ならボレー)。返球する人はボールについていきます。',
+      'step.start': 'スタート位置 — サーブ:{server} / リターン:{receiver}・{side}',
+      'step.serve': 'サーブ:×は対角の箱・◇で曲がり・○で跳ね方',
+      'step.shot': '{n}打目:×と、この打球中の選手の動き',
+
+      'piece.ball': 'ボール',
+      'piece.player': '選手{label}',
+      'handle.land': 'バウンド地点',
+      'handle.bend': 'サーブの曲がり',
+      'handle.dir': 'バウンド後の向き',
+
+      'toast.serve': '1打目:×と、サーブ中の選手の動きを決めて',
+      'toast.shot': '{n}打目:ボールを線の上で返球位置へ。×と選手の動きも決めて',
+      'toast.deleted': '打球を削除しました',
+      'toast.storage': '保存できませんでした(ストレージが使えません)',
+      'toast.sampleCopied': 'サンプルを一覧にコピーしました',
+      'toast.created': '「{name}」を作りました',
+      'toast.opened': '「{name}」を開きました',
+      'toast.resumed': '「{name}」の続きを開きました({shots})',
+      'toast.broken': 'データが壊れているため読み込めません',
+      'toast.formationSaved': '「{name}」をマイ陣形に保存しました',
+      'confirm.deletePoint': 'ポイント「{name}」を削除しますか?',
+      'confirm.deleteFormation': 'マイ陣形「{name}」を削除しますか?',
+      'prompt.pointName': 'ポイントの名前',
+      'prompt.formationName': 'マイ陣形の名前',
+      'menu.lang': '言語',
+      'people.kind': '種目',
+      'people.men': '男子',
+      'people.women': '女子',
+      'people.mixed': 'ミックス',
+      'people.tapHint': 'デュース側=デュースのポイントでリターンする人。選んでも誰も動かず、番号が入れ替わります(選手のタップでも同じ)',
+      'people.tapHintMixed': 'ミックスは 1・A が男性、2・B が女性。選んでも誰も動かず、番号と男女が入れ替わります(選手のタップでも同じ)',
+      'people.serve': 'サーバー',
+      'people.deuceReturn': 'デュース側',
+      'people.man': '男性',
+      'people.woman': '女性',
+      'gender.m': '男',
+      'gender.w': '女',
+      'mixed.who': '{label}({gender})',
+      'menu.export': '書き出す',
+      'menu.exportTitle': '表示中のポイントを文字にしてコピーする(送ったり、残しておいたりできる)',
+      'menu.import': '読み込む',
+      'menu.importTitle': '書き出した文字を貼り付けて、ポイントを一覧に追加する',
+      'toast.exported': '「{name}」をコピーしました。貼り付けて送れます',
+      'toast.imported': '「{name}」を読み込みました',
+      'toast.importBad': '読み込めませんでした(書き出した文字をそのまま貼り付けてください)',
+      'prompt.exportManual': '下の文字をすべて選んでコピーしてください',
+      'prompt.import': '書き出した文字を貼り付けてください',
+      'menu.autoShift': 'ペアの平行移動',
+      'menu.autoShiftTitle': '打った側はボールの行った側へ、受ける側のパートナーは返球する人について、横に一緒にずれる',
+      'common.on': '入',
+      'common.off': '切',
+    },
+    en: {
+      'app.title': 'Doubles Tactics Board',
+      'app.docTitle': '{name} - Doubles Tactics Board',
+      'court': 'Tennis court',
+      'close': 'Close',
+
+      'name.aria': 'Point name (tap to rename)',
+      'name.title': 'Tap to rename',
+      'name.placeholder': 'Point name',
+      'name.sample': 'Sample: {name}',
+
+      'list.title': 'Points',
+      'list.new': '＋ New',
+      'list.hint': 'Saved automatically. Tap a name to open it.',
+      'list.samples': 'Samples (view only; editing copies one to your list)',
+      'list.shots': { one: '{n} shot', other: '{n} shots' },
+      'list.current': 'Current',
+      'list.open': 'Open “{name}”',
+      'list.rename': 'Rename',
+      'list.renameAria': 'Rename “{name}”',
+      'list.copy': 'Copy',
+      'list.delete': 'Delete',
+      'list.deleteAria': 'Delete “{name}”',
+      'list.origin': 'from {name}',
+      'list.originDeleted': ' (deleted)',
+      'list.originShot': ' (up to shot {n})',
+      'list.originStart': ' (start only)',
+
+      'point.base': 'Point',
+      'point.resumed': 'Where I left off',
+      'point.copyName': '{name} (copy)',
+      'point.fromShot': '{name} – up to shot {n}',
+      'point.fromStart': '{name} – start',
+      'point.sampleSrc': 'Sample “{name}”',
+
+      'sample.label': 'Sample',
+      'sample.watch': '▶ Watch',
+      'sample.smp-lob': 'One up one back: lob the net player, then move in',
+      'sample.smp-lob.1': '① 1 serves',
+      'sample.smp-lob.2': '② A returns cross-court',
+      'sample.smp-lob.3': '③ 1 lobs over B at the net',
+      'sample.smp-lob.4': '④ A gets it back, B switches; 1 & 2 move in',
+      'sample.smp-lob.5': '⑤ 2 volleys a winner down the middle',
+      'sample.smp-poach': 'I formation: win it with a poach',
+      'sample.smp-poach.1': '① Serve from the I formation',
+      'sample.smp-poach.2': '② 2 poaches off the return, 1 covers right',
+      'sample.smp-poach.3': '③ 2 poach-volleys it before the bounce',
+      'sample.smp-change': 'Two up: switch to cover a lob',
+      'sample.smp-change.1': '① 1 serves and comes in',
+      'sample.smp-change.2': '② A lobs over 1 at the net',
+      'sample.smp-change.3': '③ 2 switches, chases it and lobs back',
+      'sample.smp-change.4': '④ A gets it back; 2 moves up again',
+      'sample.smp-change.5': '⑤ 2 goes deep cross-court to reset',
+
+      'presets.button': 'Formations',
+      'presets.pick': 'Choose the starting formation',
+      'presets.title': 'Formations (starting positions)',
+      'presets.mine': 'My formations',
+      'presets.empty': 'None yet',
+      'presets.save': '＋ Save current',
+      'presets.saveTitle': 'Save the current starting positions to My formations',
+      'presets.saveLong': 'Save to My formations',
+      'presets.deleteAria': 'Delete my formation “{name}”',
+      'presets.defaultName': 'My formation {n}',
+      'group.serve': 'We serve',
+      'group.return': 'We return',
+      'scene.label': 'Scene',
+      'presets.formation': 'Formation',
+      'preset.serve-basic': 'One up one back',
+      'preset.serve-i': 'I formation',
+      'preset.serve-aus': 'Australian',
+      'preset.ret-basic': 'One up one back',
+      'preset.ret-2back': 'Two back',
+
+      'shot.aria': 'This shot',
+      'shot.title': 'This shot',
+      'shot.titleServe': 'Shot 1 (serve)',
+      'shot.kind': 'Shot type',
+      'shot.normal': 'Normal',
+      'shot.lob': 'Lob',
+      'shot.hard': 'Hard',
+      'shot.flat': 'Flat',
+      'shot.slice': 'Slice',
+      'shot.kick': 'Kick',
+      'serve.kind': 'Serve type',
+      'serve.hand': 'Handedness',
+      'serve.right': 'Righty',
+      'serve.rightShort': 'R',
+      'serve.left': 'Lefty',
+      'serve.leftShort': 'L',
+      'serve.side': 'Deuce / ad',
+      'serve.sideTitle': 'Switch deuce / ad',
+      'serve.sideLocked': 'Can’t be switched after “Serve”',
+      'serve.deuce': 'Deuce',
+      'serve.ad': 'Ad',
+
+      'nav.aria': 'Shots and playback',
+      'nav.prev': 'Previous shot',
+      'nav.prevKey': 'Previous shot (←)',
+      'nav.next': 'Next shot',
+      'nav.nextKey': 'Next shot (→)',
+      'nav.playKey': 'Play / stop (Space)',
+      'nav.play': '▶ Play',
+      'nav.stop': '■ Stop',
+      'nav.addKey': 'Add the next shot (Enter)',
+      'nav.serve': '▶ Serve',
+      'nav.add': '＋ Next shot',
+      'nav.addShort': '＋ Next',
+      'nav.start': 'Start',
+      'nav.shotN': 'Shot {n}',
+      'strip.empty': 'No shots yet. Set the starting positions, then “Serve”.',
+      'strip.noBounce': ' (no bounce)',
+      'strip.show': 'Show shot {n}',
+
+      'menu.title': 'More',
+      'menu.speed': 'Speed',
+      'menu.lang': 'Language',
+      'people.kind': 'Event',
+      'people.men': 'Men’s',
+      'people.women': 'Women’s',
+      'people.mixed': 'Mixed',
+      'people.tapHint': 'Deuce side = who returns on deuce points. Picking moves no one: the pair swaps numbers (tapping a player does the same)',
+      'people.tapHintMixed': 'In mixed, 1 and A are the men, 2 and B the women. Picking moves no one: the pair swaps numbers and roles (tapping a player does the same)',
+      'people.serve': 'Server',
+      'people.deuceReturn': 'Deuce side',
+      'people.man': 'Man',
+      'people.woman': 'Woman',
+      'gender.m': 'M',
+      'gender.w': 'W',
+      'mixed.who': '{label} ({gender})',
+      'menu.export': 'Export',
+      'menu.exportTitle': 'Copy the point shown as text (to send it or keep it)',
+      'menu.import': 'Import',
+      'menu.importTitle': 'Paste exported text to add that point to the list',
+      'toast.exported': 'Copied “{name}”. Paste it anywhere to send it',
+      'toast.imported': 'Imported “{name}”',
+      'toast.importBad': 'Couldn’t import (paste the exported text as it is)',
+      'prompt.exportManual': 'Select all of the text below and copy it',
+      'prompt.import': 'Paste the exported text',
+      'menu.autoShift': 'Pair shift',
+      'menu.autoShiftTitle': 'The hitting pair slides towards where the ball went; the returner’s partner follows the returner',
+      'common.on': 'On',
+      'common.off': 'Off',
+      'menu.first': 'First shot',
+      'menu.firstTitle': 'Go to shot 1',
+      'menu.last': 'Last shot',
+      'menu.lastTitle': 'Go to the last shot',
+      'menu.new': 'New point',
+      'menu.newTitle': 'Start a new point from the current starting positions (this point stays in the list)',
+      'menu.del': 'Delete shot',
+      'menu.delTitle': 'Delete the shot shown',
+      'menu.copyTitle': 'Make a new point from the start up to the shot shown',
+      'menu.copyStart': 'Copy up to here (start only)',
+      'menu.copyUpTo': 'Copy up to here (to shot {n})',
+      'menu.keys': 'Keys: ← → shots / Space play, stop / Enter next shot',
+      'legend.own': 'Us (1, 2)',
+      'legend.opp': 'Opponents (A, B)',
+      'legend.ball': 'Ball',
+
+      'hint.playing': 'Playing…',
+      'hint.start': 'Start: place everyone where they stand before the serve (the ball follows the server). Choose deuce or ad here; “Serve” then draws the serve.',
+      'hint.shot': 'Moving a player = where they go during this shot (faint circle = where they were at the hit, fine dots = an automatic move). × = where it bounces. Slide the ball along the previous shot’s line to choose where it is hit back (before × = a volley); the returner follows it.',
+      'step.start': 'Start — Serve: {server} / Return: {receiver}, {side}',
+      'step.serve': 'Serve: × in the diagonal box, ◇ curve, ○ bounce',
+      'step.shot': 'Shot {n}: ×, and where players move meanwhile',
+
+      'piece.ball': 'Ball',
+      'piece.player': 'Player {label}',
+      'handle.land': 'Bounce spot',
+      'handle.bend': 'Serve curve',
+      'handle.dir': 'Direction after the bounce',
+
+      'toast.serve': 'Shot 1: set × and how players move during the serve',
+      'toast.shot': 'Shot {n}: slide the ball to where it’s hit back, then set × and the moves',
+      'toast.deleted': 'Shot deleted',
+      'toast.storage': 'Couldn’t save (storage is not available)',
+      'toast.sampleCopied': 'Sample copied to your list',
+      'toast.created': 'Created “{name}”',
+      'toast.opened': 'Opened “{name}”',
+      'toast.resumed': 'Continuing “{name}” ({shots})',
+      'toast.broken': 'This data is damaged and can’t be loaded',
+      'toast.formationSaved': 'Saved “{name}” to My formations',
+      'confirm.deletePoint': 'Delete the point “{name}”?',
+      'confirm.deleteFormation': 'Delete my formation “{name}”?',
+      'prompt.pointName': 'Point name',
+      'prompt.formationName': 'Name of this formation',
+    },
+  };
+
+  // Each language's name, written in that language (for the switch in the 「…」 menu).
+  const LANG_NAMES = { ja: '日本語', en: 'English' };
+
+  // A saved choice wins; otherwise the device's first language we have, else English.
+  function pickLang(saved, deviceLangs = []) {
+    if (saved && STRINGS[saved]) return saved;
+    for (const l of deviceLangs) {
+      const base = String(l || '').toLowerCase().split('-')[0];
+      if (STRINGS[base]) return base;
+    }
+    return 'en';
+  }
+
+  function tr(lang, key, vars = {}) {
+    let v = (STRINGS[lang] || STRINGS.ja)[key];
+    if (v === undefined) return key;
+    if (typeof v === 'object') v = vars.n === 1 ? v.one : v.other;
+    return v.replace(/\{(\w+)\}/g, (m, k) => (k in vars ? String(vars[k]) : m));
+  }
+
+  // Who the players are, per point: the event (men's / women's / mixed doubles) and which player of each pair is
+  // 「1」 / 「A」 (the other is 「2」 / 「B」). In mixed doubles 1 / A is the man and 2 / B the woman.
+  // The pieces keep their ids (p1, p2, A, B) — this only says which number (and colour) each one shows, so picking
+  // who serves or who returns on the deuce side never moves anyone.
+
+  const KINDS = ['men', 'women', 'mixed'];
+  // first: the piece shown as 1 / A of each pair.
+  const defaultPeople = () => ({ kind: 'men', first: { own: 'p1', opp: 'A' } });
+  function normalizePeople(v) {
+    const d = defaultPeople();
+    if (!v || typeof v !== 'object') return d;
+    const ids = (team) => PLAYERS.filter((p) => p.team === team).map((p) => p.id);
+    const first = v.first || v.men || {}; // points saved before 1 / 2 could be picked in every event: men = the man of each pair
+    return {
+      kind: KINDS.includes(v.kind) ? v.kind : d.kind,
+      first: {
+        own: ids('own').includes(first.own) ? first.own : d.first.own,
+        opp: ids('opp').includes(first.opp) ? first.opp : d.first.opp,
+      },
+    };
+  }
+  const playerOf = (id) => PLAYERS.find((x) => x.id === id);
+  const partnerOf = (id) => PLAYERS.find((x) => x.team === playerOf(id).team && x.id !== id);
+  // 0 = shown as 1 / A, 1 = shown as 2 / B.
+  const numberOf = (people, id) => (people.first[playerOf(id).team] === id ? 0 : 1);
+  // 'm' / 'w' in mixed doubles (1 / A is the man), else null (everyone is of the event's sex, nothing to mark).
+  function genderOf(people, id) {
+    if (people.kind !== 'mixed' || !playerOf(id) || playerOf(id).team === 'ball') return null;
+    return numberOf(people, id) === 0 ? 'm' : 'w';
+  }
+  // Makes player id number n (0: 1 / A, 1: 2 / B) of their pair; the partner gets the other.
+  function setNumber(people, id, n) {
+    const p = playerOf(id);
+    if (!p || p.team === 'ball') return people;
+    return { ...people, first: { ...people.first, [p.team]: n === 0 ? id : partnerOf(id).id } };
+  }
+  // The two of a pair swap numbers (and, in mixed doubles, who is the man).
+  const swapPair = (people, id) => setNumber(people, id, 1 - numberOf(people, id));
+  // The player returning on the deuce side: the receiver now (at the back) on a deuce point, the partner on an ad point.
+  const deuceReceiver = (side, receiverId) => (side === 'deuce' ? receiverId : partnerOf(receiverId).id);
+  // What a player is shown as: number (label) and colour key (a player id in PLAYER_COLORS). They belong to the
+  // person — 1 / A in the first colour of the pair, 2 / B in the second — so swapping keeps each person's look.
+  function displayOf(people, id) {
+    const p = playerOf(id);
+    if (!p || p.team === 'ball') return null;
+    const q = PLAYERS.filter((x) => x.team === p.team)[numberOf(people, id)];
+    return { label: q.label, color: q.id };
+  }
+
+  // Ball flight along a shot and how players move during playback (pure timing / geometry).
+
+  // ---- Ball flight of shot `a` up to its return point c, via × only if it is reached.
+  // span = share of the full simulated leg actually flown (the height arc is cut there).
+  function legsFor(a, c) {
+    const T = SHOT_TYPES[a.shot.type], g = geom(a), lob = a.shot.type === 'lob';
+    const leg0 = (tEnd) => ({ p: g.a, q: leg0At(g, tEnd), at: g.ctrl ? (u) => leg0At(g, u * tEnd) : null, peak: T.peak[0], lob, span: tEnd });
+    if (c.leg === 0) return [leg0(c.t)];
+    return [leg0(1), { p: g.b, q: catchPoint(a, c), peak: T.peak[1], span: Math.min(1, c.t), afterBounce: true }];
+  }
+  // The rest of the simulated line past the return point (drawn faintly as the rail it can slide on).
+  function railAfter(a, c) {
+    const g = geom(a), pts = [catchPoint(a, c)];
+    if (c.leg === 0) {
+      for (let i = 1; i <= 8; i++) pts.push(leg0At(g, c.t + ((1 - c.t) * i) / 8));
+      if (a.shot.bounce) pts.push(catchPoint(a, { leg: 1, t: 1 }));
+    } else if (c.t < 1) pts.push(catchPoint(a, { leg: 1, t: 1 }));
+    return pts.length > 1 ? pts : null;
+  }
+  // Height of the ball along a leg (0..1): an arc over the full simulated leg, cut at the return point.
+  const heightAt = (leg, v) => { const s = v * (leg.span ?? 1); return leg.peak * 4 * s * (1 - s); };
+  const legPoint = (leg, u) => (leg.at ? leg.at(u) : { x: lerp(leg.p.x, leg.q.x, u), y: lerp(leg.p.y, leg.q.y, u) });
+  function legLen(leg) {
+    if (!leg.at) return Math.hypot(leg.q.x - leg.p.x, leg.q.y - leg.p.y);
+    let s = 0, prev = leg.p;
+    for (let i = 1; i <= 16; i++) { const q = leg.at(i / 16); s += Math.hypot(q.x - prev.x, q.y - prev.y); prev = q; }
+    return s;
+  }
+
+  const REACT = 0.2; // share of the flight the receiving side needs to read the shot before moving
+
+  // The team of whoever stands closest to the ball at the moment of the hit.
+  function hittingTeam(at, ball) {
+    let best = null, bestD = Infinity;
+    for (const p of PLAYERS) {
+      const d = Math.hypot(at[p.id].x - ball.x, at[p.id].y - ball.y);
+      if (d < bestD) { best = p.team; bestD = d; }
+    }
+    return best;
+  }
+  // Receiving side: waits to react, then accelerates and reaches its spot together with the ball
+  // (never ahead of it). The hitting side just recovers position with an ease-in-out.
+  function chase(u) {
+    const t = Math.max(0, (u - REACT) / (1 - REACT));
+    return Math.pow(t, 1.3);
+  }
+
+  // Only the receiver may return a serve: the receiving player at the back (the partner stands in front).
+  function serveReceiver(st, from) {
+    const team = hittingTeam(from, st.pieces.ball);
+    const [a, b] = PLAYERS.filter((p) => p.team !== team);
+    return Math.abs(from[a.id].y - NET) >= Math.abs(from[b.id].y - NET) ? a : b;
+  }
+  // Where the next shot is hit by default: on this shot's line, just in front (net side) of the receiving
+  // player closest to the line (the receiver, for a serve). from = players when st was hit (to tell who
+  // hit it), to = where they are when the ball arrives.
+  const FRONT = 10; // the ball is met about 1m in front of the body
+  function defaultReturn(st, from, to) {
+    const team = hittingTeam(from, st.pieces.ball), only = isServe(st) ? serveReceiver(st, from) : null;
+    let best = null;
+    for (const p of PLAYERS) {
+      if (p.team === team || (only && p !== only)) continue;
+      const pos = to[p.id], q = catchPoint(st, projectCatch(st, pos)), d = Math.hypot(q.x - pos.x, q.y - pos.y);
+      if (!best || d < best.d) best = { d, pos };
+    }
+    const toNet = best.pos.y > NET ? -1 : 1;
+    return projectCatch(st, { x: best.pos.x, y: best.pos.y + toNet * FRONT });
+  }
+
+  // Automatic moves while shot st is in the air, for the players the user has not moved themselves.
+  // from = players when st was hit, ret = where the next shot is hit (the return point).
+  // - The returner (the receiver for a serve, else the receiving player who starts closest to ret) runs to
+  //   about 1m behind it.
+  // - With shift on, the pairs move together: the hitting pair shifts sideways towards the side the ball
+  //   went to (its centre to SHIFT of the way from the middle to the ball), and the returner's partner
+  //   follows PARTNER of the returner's sideways run. Depths stay as they were.
+  const SHIFT = 0.5, PARTNER = 0.5;
+  function autoMoves(st, from, ret, { shift = true } = {}) {
+    const hitTeam = hittingTeam(from, st.pieces.ball);
+    const out = {};
+    for (const p of PLAYERS) out[p.id] = { ...from[p.id] };
+    const rec = PLAYERS.filter((p) => p.team !== hitTeam), hit = PLAYERS.filter((p) => p.team === hitTeam);
+    const r = returnerOf(st, from, ret);
+    out[r.id] = returnSpot(r, ret);
+    if (!shift) return out;
+    const side = (x) => Math.max(-6, Math.min(W + 6, x)); // may stand in the alley or just outside, not further
+    const q = rec.find((p) => p !== r);
+    out[q.id] = { x: side(from[q.id].x + (out[r.id].x - from[r.id].x) * PARTNER), y: from[q.id].y };
+    const centre = (from[hit[0].id].x + from[hit[1].id].x) / 2, target = W / 2 + (ret.x - W / 2) * SHIFT;
+    for (const p of hit) out[p.id] = { x: side(from[p.id].x + target - centre), y: from[p.id].y };
+    return out;
+  }
+
+  // Who hits the next shot at ret: the receiver for a serve, else the receiving player who starts nearest.
+  function returnerOf(st, from, ret) {
+    if (isServe(st)) return serveReceiver(st, from);
+    const team = hittingTeam(from, st.pieces.ball), dist = (a) => Math.hypot(a.x - ret.x, a.y - ret.y);
+    const [a, b] = PLAYERS.filter((p) => p.team !== team);
+    return dist(from[a.id]) <= dist(from[b.id]) ? a : b;
+  }
+  // Where the returner stands to hit the ball at ret: about 1m behind it, on their side of the net.
+  const returnSpot = (player, ret) => keepOnSide(player.team, { x: ret.x, y: ret.y + (ret.y > NET ? FRONT : -FRONT) });
+
+  // Language of the screen: texts come from src/model/strings.js through t(key, slots).
+  // Part of one script with src/model/* (see tools/build.js): names are shared, no imports.
+  const LS_LANG = 'tennisBoard.lang';
+  let lang = (() => {
+    let saved = null;
+    try { saved = localStorage.getItem(LS_LANG); } catch (_) {}
+    return pickLang(saved, navigator.languages && navigator.languages.length ? navigator.languages : [navigator.language]);
+  })();
+  const t = (key, vars) => tr(lang, key, vars);
+  const sampleName = (smp) => t('sample.' + smp.id);
+  // Texts written into src/index.html: data-i18n (text), data-i18n-title, data-i18n-aria, data-i18n-placeholder.
+  function applyStaticText() {
+    document.documentElement.lang = lang;
+    document.querySelectorAll('[data-i18n]').forEach((e) => { e.textContent = t(e.dataset.i18n); });
+    document.querySelectorAll('[data-i18n-title]').forEach((e) => { e.title = t(e.dataset.i18nTitle); });
+    document.querySelectorAll('[data-i18n-aria]').forEach((e) => { e.setAttribute('aria-label', t(e.dataset.i18nAria)); });
+    document.querySelectorAll('[data-i18n-placeholder]').forEach((e) => { e.placeholder = t(e.dataset.i18nPlaceholder); });
+  }
+  applyStaticText();
+
+  // The language switch in the 「…」 menu. The choice is kept for the next visit.
+  function buildLangSeg() {
+    $('lang-seg').append(...Object.keys(STRINGS).map((l) =>
+      h('button', { className: 'btn small', lang: l, textContent: LANG_NAMES[l], dataset: { lang: l }, onclick: () => setLang(l) })));
+    renderLangSeg();
+  }
+  function renderLangSeg() {
+    document.querySelectorAll('[data-lang]').forEach((b) => setOn(b, b.dataset.lang === lang));
+  }
+  function setLang(l) {
+    if (!STRINGS[l] || l === lang) return;
+    lang = l;
+    try { localStorage.setItem(LS_LANG, l); } catch (_) {}
+    applyStaticText();
+    labelPieces();
+    renderLangSeg();
+    if (viewingSample) { // the captions of a sample follow the language; that is not an edit of it
+      frames.forEach((f, i) => { f.note = t(`sample.${viewingSample.id}.${i + 1}`); });
+      lastSavedKey = dataKey(snapshot());
+    }
+    renderLists();
+    render();
+  }
+
+  // What is on the board: the point being edited and the shot shown.
+  // Part of one script with src/model/* (see tools/build.js): names are shared, no imports.
+  const LS_FORMATIONS = 'tennisBoard.formations.v1';
+  const LS_POINTS = 'tennisBoard.points.v1';
+
+
+  // ---- State
+  let board = presetState(PRESETS[0].items[0]);
+  let activePreset = PRESETS[0].items[0].id;
+  let frames = [];
+  let cur = -1;          // frame shown on the board; while >= 0, `board` IS frames[cur] and edits go straight into it
+  let playing = null;    // { raf, stop() } while animating
+  let people = defaultPeople(); // the point's event, 「自分」 and (mixed doubles) who is the man of each pair
+
+  // Drawing the court, the players, the ball, its lines and the movement arrows.
+  // Part of one script with src/model/* (see tools/build.js): names are shared, no imports.
+  // ---- DOM
+  const $ = (id) => document.getElementById(id);
+  const svg = $('court');
+  const NS = 'http://www.w3.org/2000/svg';
+  const el = (tag, attrs = {}, parent) => {
+    const n = document.createElementNS(NS, tag);
+    for (const k in attrs) n.setAttribute(k, attrs[k]);
+    if (parent) parent.appendChild(n);
+    return n;
+  };
+  // HTML element: h('button', { className, textContent, disabled, title, dataset: {…}, aria: {…}, onclick }, ...children)
+  function h(tag, props = {}, ...kids) {
+    const e = document.createElement(tag);
+    for (const [k, v] of Object.entries(props)) {
+      if (k === 'dataset') Object.assign(e.dataset, v);
+      else if (k === 'aria') for (const [a, x] of Object.entries(v)) e.setAttribute('aria-' + a, x);
+      else if (k.startsWith('on')) e.addEventListener(k.slice(2), v);
+      else e[k] = v;
+    }
+    e.append(...kids);
+    return e;
+  }
+  const f1 = (v) => v.toFixed(1);
+
+  // ---- Court drawing
+  function drawCourt() {
+    const g = $('court-lines');
+    el('rect', { x: 0, y: 0, width: W, height: L, fill: COLORS.court }, g);
+    const s = { stroke: COLORS.chalk, 'stroke-width': 0.9, fill: 'none', 'stroke-linecap': 'round', opacity: 0.92 };
+    el('rect', { x: 0, y: 0, width: W, height: L, ...s }, g);
+    el('line', { x1: ALLEY, y1: 0, x2: ALLEY, y2: L, ...s }, g);
+    el('line', { x1: W - ALLEY, y1: 0, x2: W - ALLEY, y2: L, ...s }, g);
+    el('line', { x1: ALLEY, y1: NET - SVC, x2: W - ALLEY, y2: NET - SVC, ...s }, g);
+    el('line', { x1: ALLEY, y1: NET + SVC, x2: W - ALLEY, y2: NET + SVC, ...s }, g);
+    el('line', { x1: W / 2, y1: NET - SVC, x2: W / 2, y2: NET + SVC, ...s }, g);
+    el('line', { x1: W / 2, y1: 0, x2: W / 2, y2: 2.5, ...s }, g);
+    el('line', { x1: W / 2, y1: L - 2.5, x2: W / 2, y2: L, ...s }, g);
+    // net
+    el('line', { x1: -9, y1: NET, x2: W + 9, y2: NET, stroke: COLORS.chalk, 'stroke-width': 1.6, 'stroke-dasharray': '1.4 1.2', opacity: 0.85 }, g);
+    el('circle', { cx: -9, cy: NET, r: 1.4, fill: COLORS.chalk }, g);
+    el('circle', { cx: W + 9, cy: NET, r: 1.4, fill: COLORS.chalk }, g);
+  }
+
+  // ---- Pieces
+  const pieceEls = {};
+  let ballShadow, ballBody;
+  const pieceLabel = (p) => (p.id === 'ball' ? t('piece.ball')
+    : t('piece.player', { label: displayOf(people, p.id).label }) + (genderOf(people, p.id) ? ` (${t('gender.' + genderOf(people, p.id))})` : ''));
+  // After a language change: the names read out for the pieces and handles.
+  function labelPieces() {
+    for (const id of HANDLES) pieceEls[id].setAttribute('aria-label', t('handle.' + id));
+    for (const p of PIECES) pieceEls[p.id].setAttribute('aria-label', pieceLabel(p));
+  }
+  function buildPieces() {
+    // an arrowhead in each player's colour for their moves
+    const defs = svg.querySelector('defs');
+    for (const p of PLAYERS) {
+      const m = el('marker', { id: 'mk-' + p.id, viewBox: '0 0 10 10', refX: 7, refY: 5, markerWidth: 5, markerHeight: 5, orient: 'auto-start-reverse' }, defs);
+      el('path', { d: 'M0,0 L10,5 L0,10 z', fill: PLAYER_COLORS[p.id] }, m);
+    }
+    const layer = $('layer-pieces');
+    // Shot handles first so players and the ball draw over them.
+    const handle = (id, label) => {
+      const g = el('g', { class: 'piece handle', 'data-id': id, role: 'img', 'aria-label': label, display: 'none' }, layer);
+      el('circle', { r: HANDLE_R, fill: 'transparent' }, g);
+      pieceEls[id] = g;
+      return g;
+    };
+    const lm = handle('land', t('handle.land'));
+    el('circle', { r: 3.4, fill: 'rgba(0,0,0,.25)', stroke: COLORS.ball, 'stroke-width': 0.7, 'stroke-dasharray': '1.2 0.9' }, lm);
+    el('path', { d: 'M-2,-2 L2,2 M2,-2 L-2,2', stroke: COLORS.ball, 'stroke-width': 1.1, 'stroke-linecap': 'round' }, lm);
+    const bh = handle('bend', t('handle.bend'));
+    el('path', { d: 'M0,-2.6 L2.6,0 L0,2.6 L-2.6,0 z', fill: COLORS.ball, 'fill-opacity': 0.85, stroke: '#1b2410', 'stroke-width': 0.5 }, bh);
+    const dh = handle('dir', t('handle.dir'));
+    el('circle', { r: 2.6, fill: 'rgba(0,0,0,.35)', stroke: COLORS.ball, 'stroke-width': 0.8 }, dh);
+    for (const p of PIECES) {
+      const g = el('g', { class: 'piece', 'data-id': p.id, role: 'img', 'aria-label': pieceLabel(p) }, layer);
+      if (p.id === 'ball') {
+        ballShadow = el('ellipse', { rx: R_BALL, ry: R_BALL * 0.55, fill: 'rgba(0,0,0,.45)', display: 'none' }, g);
+        ballBody = el('g', {}, g);
+        el('circle', { r: 9, fill: 'transparent' }, ballBody); // bigger hit target
+        el('circle', { r: R_BALL, fill: COLORS.ball, stroke: '#1b2410', 'stroke-width': 0.6 }, ballBody);
+      } else {
+        el('circle', { r: R_PLAYER + 0.8, fill: 'rgba(0,0,0,.28)', cy: 0.9 }, g);
+        el('circle', { class: 'body', r: R_PLAYER, fill: PLAYER_COLORS[p.id], stroke: '#1b2410', 'stroke-width': 0.7 }, g);
+        const t = el('text', { class: 'mark', 'text-anchor': 'middle', 'dominant-baseline': 'central', 'font-size': 8.5, 'font-weight': 700,
+          fill: '#1b2410', 'pointer-events': 'none' }, g);
+        t.textContent = p.label;
+        // mixed doubles: 「男」 / 「女」 at the lower right
+        const badge = el('g', { class: 'gender', transform: 'translate(5.6 5.6)', display: 'none', 'pointer-events': 'none' }, g);
+        el('circle', { r: 3.4, fill: COLORS.chalk, stroke: '#1b2410', 'stroke-width': 0.5 }, badge);
+        el('text', { 'text-anchor': 'middle', 'dominant-baseline': 'central', 'font-size': 4.2, 'font-weight': 700, fill: '#1b2410' }, badge);
+      }
+      pieceEls[p.id] = g;
+    }
+  }
+
+  // h = ball height 0..1; drawn as a lifted, enlarged ball over its ground shadow.
+  function renderPieces(pieces, h = 0) {
+    for (const p of PIECES) {
+      const pos = pieces[p.id];
+      pieceEls[p.id].setAttribute('transform', `translate(${pos.x.toFixed(2)} ${pos.y.toFixed(2)})`);
+    }
+    ballShadow.setAttribute('display', h > 0.02 ? '' : 'none');
+    ballBody.setAttribute('transform', h > 0.001 ? `translate(0 ${(-h * 12).toFixed(2)}) scale(${(1 + h * 0.9).toFixed(3)})` : '');
+  }
+
+  // ---- Handles for the shot on the board: × (bounce spot), ◇ and ○ (serve shape).
+  const HANDLES = ['land', 'bend', 'dir'];
+  const HANDLE_R = 5.5;
+  const nextFrame = () => (cur >= 0 ? frames[cur + 1] : null);
+  // "スタート" step: where everyone stands before the first hit (frame 1's start) and where the ball is served
+  // from. It is shown when cur === -1; with no frames yet it is simply the board itself.
+  const inSetup = () => cur < 0 && frames.length > 0;
+  function setupBoard() {
+    const f = frames[0];
+    return { pieces: { ...playersOf(f.start || f.pieces), ball: { ...f.pieces.ball } }, shot: clone(f.shot) };
+  }
+  // Edits made on the スタート step go to frame 1. A player who did not move during the serve keeps not moving.
+  function moveInSetup(id, pos) {
+    const f = frames[0];
+    board.pieces[id] = pos;
+    if (id === 'ball') {
+      f.pieces.ball = clampServeBall(f.shot.serve.side, pos);
+      f.shot.land = clampLand(f, f.shot.land);
+      board.pieces.ball = { ...f.pieces.ball };
+      board.shot = clone(f.shot);
+      resyncAfterServe();
+      return;
+    }
+    const start = f.start || (f.start = playersOf(f.pieces));
+    const old = start[id];
+    if (Math.hypot(f.pieces[id].x - old.x, f.pieces[id].y - old.y) < 0.5) f.pieces[id] = { ...pos };
+    start[id] = { ...pos };
+  }
+  // Where the current shot is returned: the next frame's catch, or the whole line when nothing follows yet.
+  const currentCatch = () => (nextFrame() ? nextFrame().catch : fullCatch(board));
+  function handlePos(id) {
+    if (id === 'land') return board.shot.land;
+    if (!isServe(board)) return null;
+    const g = geom(board);
+    if (g.L0 < 10) return null;
+    if (id === 'bend') return leg0At(g, 0.5);
+    if (id === 'dir') return catchPoint(board, { leg: 1, t: 1 });
+    return null;
+  }
+  // After the serve (frame 1) changes, keep the return on its line.
+  function resyncAfterServe() {
+    const f = frames[0], n = frames[1];
+    if (!f || !n) return;
+    n.catch = validCatch(f, n.catch);
+    n.pieces.ball = catchPoint(f, n.catch);
+  }
+  // Keep the next frame's ball on this shot's line, at the same place along it.
+  function syncNextBall() {
+    const n = nextFrame();
+    if (!n) return;
+    n.catch = validCatch(board, n.catch);
+    n.pieces.ball = catchPoint(board, n.catch);
+  }
+  // A frame's own ball (its return point) can only sit on the previous shot's line.
+  function snapBallToPrev() {
+    if (cur < 1) return;
+    const prev = frames[cur - 1];
+    board.catch = projectCatch(prev, board.pieces.ball);
+    board.pieces.ball = catchPoint(prev, board.catch);
+  }
+  function renderHandles(show) {
+    for (const id of HANDLES) {
+      const pos = show ? handlePos(id) : null;
+      const g = pieceEls[id];
+      g.setAttribute('display', pos ? '' : 'none');
+      if (pos) g.setAttribute('transform', `translate(${pos.x.toFixed(2)} ${pos.y.toFixed(2)})`);
+    }
+  }
+
+  // ---- Drawing the ball's flight
+  const legD = (leg, u = 1) => {
+    const n = leg.at ? 24 : 1;
+    let d = '';
+    for (let i = 0; i <= n; i++) { const q = legPoint(leg, (u * i) / n); d += (i ? ' L' : 'M') + f1(q.x) + ',' + f1(q.y); }
+    return d;
+  };
+  // style: 'past' = the previous shot (faded), 'guide' = the shot being edited, 'live' = ball in the air.
+  // Before the bounce: solid (long dashes for a lob). After the bounce: fine dots, a little thinner.
+  // Opacity tells the shot being edited (guide) from the previous one (past).
+  // arrow: an arrowhead at the end (only where the shot's line ends, see renderTrail).
+  function drawLeg(layer, leg, type, u = 1, style = 'live', arrow = true) {
+    if (legLen(leg) * u < 1.5) return;
+    const w = type === 'hard' ? 1.7 : 1.25;
+    el('path', { d: legD(leg, u), class: 'leg ' + style + (leg.afterBounce ? ' after' : ''), fill: 'none', stroke: COLORS.ball,
+      'stroke-linecap': 'round', 'stroke-linejoin': 'round',
+      'stroke-width': leg.afterBounce ? w * 0.8 : w,
+      'stroke-dasharray': leg.afterBounce ? '0.1 2' : leg.lob ? '3 1.8' : 'none',
+      opacity: style === 'guide' ? 0.75 : style === 'past' ? 0.45 : 0.88, ...(u < 1 || !arrow ? {} : { 'marker-end': 'url(#mk-ball)' }) }, layer);
+  }
+  function drawBounceMark(layer, pt) {
+    el('path', { d: `M${f1(pt.x - 2)},${f1(pt.y - 2)} L${f1(pt.x + 2)},${f1(pt.y + 2)} M${f1(pt.x + 2)},${f1(pt.y - 2)} L${f1(pt.x - 2)},${f1(pt.y + 2)}`,
+      class: 'bounce-mark', stroke: COLORS.ball, 'stroke-width': 1, 'stroke-linecap': 'round', opacity: 0.6 }, layer);
+  }
+  // Only the previous shot is kept on screen; older ones made the court unreadable.
+  const recent = (upTo) => frames.slice(Math.max(0, upTo - 1), upTo + 1);
+  function drawRail(layer, pts, style) {
+    if (!pts) return;
+    el('path', { d: 'M' + pts.map((q) => f1(q.x) + ',' + f1(q.y)).join(' L'), class: 'rail', fill: 'none', stroke: COLORS.ball,
+      'stroke-width': 0.6, 'stroke-linecap': 'round', opacity: 0.3 }, layer); // thin and faint: not to be mistaken for a flight
+    // The shot's arrowhead stays at the end of its line, even when the ball is taken earlier.
+    const p = pts[pts.length - 2], q = pts[pts.length - 1];
+    el('path', { d: `M${f1(p.x)},${f1(p.y)} L${f1(q.x)},${f1(q.y)}`, class: 'arrow-tip', fill: 'none', stroke: COLORS.ball, 'stroke-opacity': 0,
+      'stroke-width': 1.25, opacity: style === 'guide' ? 0.75 : 0.45, 'marker-end': 'url(#mk-ball)' }, layer);
+  }
+  // Where the next shot takes the ball, when that is before the end of the line.
+  function drawCatchMark(layer, pt) {
+    el('circle', { cx: f1(pt.x), cy: f1(pt.y), r: 2.4, class: 'catch-mark', fill: 'none', stroke: COLORS.ball, 'stroke-width': 0.7, opacity: 0.9 }, layer);
+  }
+  // states: consecutive frames, the last one being on the board; its shot is drawn as the guide.
+  // live: { a, c, li, v } = shot currently in the air during playback.
+  function renderTrail(states, live) {
+    const layer = $('layer-trail');
+    layer.replaceChildren();
+    for (let k = 0; k + 1 < states.length; k++) {
+      const a = states[k], c = states[k + 1].catch || fullCatch(a), rail = live ? null : railAfter(a, c);
+      drawFlight(layer, a, c, 'past', rail);
+      if (c.leg === 1) drawBounceMark(layer, a.shot.land);
+      drawRail(layer, rail, 'past'); // where else on that line the ball could have been taken
+    }
+    if (live) {
+      legsFor(live.a, live.c).forEach((leg, i) => { if (i <= live.li) drawLeg(layer, leg, live.a.shot.type, i < live.li ? 1 : live.v); });
+      if (live.c.leg === 1 && live.li >= 1) drawBounceMark(layer, live.a.shot.land);
+      return;
+    }
+    const last = states[states.length - 1];
+    if (!last) return;
+    const c = last === board ? currentCatch() : fullCatch(last), rail = nextFrame() ? railAfter(last, c) : null;
+    drawFlight(layer, last, c, 'guide', rail);
+    drawRail(layer, rail, 'guide');
+    if (rail) drawCatchMark(layer, rail[0]);
+  }
+  // The ball's flight up to where it is taken. Arrowheads: at × when the ball gets there, and at the end of
+  // the line when nothing of the line is left over (else the rail after it carries the arrowhead).
+  function drawFlight(layer, a, c, style, rail) {
+    const legs = legsFor(a, c);
+    legs.forEach((leg, i) => drawLeg(layer, leg, a.shot.type, 1, style, i < legs.length - 1 || !rail));
+  }
+
+  // Where the players of frame k stood when its ball was hit.
+  function startOf(k) {
+    if (k > 0) return frames[k - 1].pieces;
+    const f = k === 0 ? frames[0] : board;
+    return f.start || f.pieces;
+  }
+  const ghostShown = (pid) => {
+    if (cur < 0 || playing) return false;
+    const a = startOf(cur)[pid], b = board.pieces[pid];
+    return Math.hypot(b.x - a.x, b.y - a.y) >= 3;
+  };
+
+  // ---- Player movement during this frame's shot: ghost where they stood at the hit + arrow to where they go.
+  // Ghosts are draggable: they edit the hit-moment position (the previous frame's players).
+  function renderMoves(from, now) {
+    const layer = $('layer-moves');
+    layer.replaceChildren();
+    if (!from) return;
+    for (const p of PLAYERS) {
+      const a = from[p.id], b = now.pieces[p.id];
+      const d = Math.hypot(b.x - a.x, b.y - a.y);
+      if (d < 3) continue;
+      const look = displayOf(people, p.id), color = PLAYER_COLORS[look.color];
+      el('circle', { cx: a.x, cy: a.y, r: R_PLAYER, class: 'piece ghost', 'data-id': 'ghost-' + p.id, fill: color, 'fill-opacity': 0.14, stroke: color,
+        'stroke-opacity': 0.55, 'stroke-width': 0.6, 'stroke-dasharray': '1.5 1.2' }, layer);
+      if (d > 2 * R_PLAYER + 3) {
+        // an automatic move is drawn with fine dots, a move the user made with dashes
+        const ux = (b.x - a.x) / d, uy = (b.y - a.y) / d, auto = isAuto(now, p.id);
+        el('line', { x1: f1(a.x + ux * R_PLAYER), y1: f1(a.y + uy * R_PLAYER), x2: f1(b.x - ux * (R_PLAYER + 2)), y2: f1(b.y - uy * (R_PLAYER + 2)),
+          class: 'move' + (auto ? ' auto' : ''), 'data-id': 'move-' + p.id,
+          stroke: color, 'stroke-width': auto ? 0.9 : 1.1, 'stroke-dasharray': auto ? '0.4 1.3' : '2 1.5', 'stroke-linecap': 'round', opacity: 0.7, 'marker-end': `url(#mk-${look.color})` }, layer);
+      }
+    }
+  }
+
+  function renderCaption(text, hint = false) {
+    const c = $('caption');
+    c.textContent = text || '';
+    c.hidden = !text;
+    c.classList.toggle('hint-cap', hint);
+  }
+  function stepHint() {
+    if (cur < 0) return startSummary();
+    if (cur === 0) return t('step.serve');
+    return t('step.shot', { n: cur + 1 });
+  }
+
+  // Number and colour follow the person (see displayOf); mixed doubles also get 「男」 / 「女」.
+  function renderPeople() {
+    for (const p of PLAYERS) {
+      const g = pieceEls[p.id], gender = genderOf(people, p.id), look = displayOf(people, p.id);
+      g.querySelector('circle.body').setAttribute('fill', PLAYER_COLORS[look.color]);
+      g.querySelector('text.mark').textContent = look.label;
+      const badge = g.querySelector('g.gender');
+      badge.setAttribute('display', gender ? '' : 'none');
+      if (gender) badge.querySelector('text').textContent = t('gender.' + gender);
+      g.setAttribute('aria-label', pieceLabel(p));
+    }
+  }
+  function render() {
+    renderPeople();
+    if (board.note) renderCaption(board.note); else renderCaption(stepHint(), true);
+    renderLive();
+    renderControls();
+    queueDraftSave();
+  }
+  // Cheap redraw while dragging.
+  function renderLive() {
+    renderPieces(board.pieces, 0);
+    // No ball line or handles on the スタート step: the serve is only drawn from 1打目 on.
+    renderHandles(cur >= 0);
+    renderTrail(cur >= 0 ? recent(cur) : []);
+    renderMoves(cur >= 0 ? startOf(cur) : null, board);
+  }
+
+  // The スタート step: who serves and who returns, from which side (with 男 / 女 in mixed doubles).
+  function startSummary() {
+    const st = serveState(), atStart = { ...(st.start || st.pieces), ball: st.pieces.ball };
+    const who = (id) => {
+      const label = displayOf(people, id).label;
+      return genderOf(people, id) ? t('mixed.who', { label, gender: t('gender.' + genderOf(people, id)) }) : label;
+    };
+    const server = serverId({ pieces: atStart }), receiver = serveReceiver({ pieces: atStart }, atStart).id;
+    return t('step.start', { server: who(server), receiver: who(receiver), side: t((st.shot.serve ? st.shot.serve.side : guessSide(st.pieces.ball)) === 'deuce' ? 'serve.deuce' : 'serve.ad') });
+  }
+
+  // Button states for the shot shown.
+  // Part of one script with src/model/* (see tools/build.js): names are shared, no imports.
+  // ---- Controls state
+  const canPlay = () => frames.length >= 1;
+  function renderControls() {
+    const busy = !!playing;
+    renderNav(busy);
+    renderShotRows(busy);
+    renderFrameStrip(busy);
+    svg.classList.toggle('playing', busy);
+    $('mode-hint').textContent = t(busy ? 'hint.playing' : cur < 0 ? 'hint.start' : 'hint.shot');
+  }
+  // Moving between shots, playback and the 「…」 actions.
+  function renderNav(busy) {
+    const n = frames.length;
+    $('frame-info').innerHTML = cur < 0
+      ? `<span class="start-label">${t('nav.start')}</span>${n ? `<span class="of">/ ${n}</span>` : ''}`
+      : `${t('nav.shotN', { n: cur + 1 })}<span class="of">/ ${n}</span>`;
+    $('btn-first').disabled = busy || cur <= 0;
+    $('btn-prev').disabled = busy || cur < 0 || !n;
+    $('btn-next').disabled = busy || cur >= n - 1;
+    $('btn-last').disabled = busy || cur >= n - 1;
+    $('btn-play').disabled = !canPlay();
+    $('btn-play').textContent = t(busy ? 'nav.stop' : 'nav.play');
+    $('btn-del-frame').disabled = busy || cur < 0;
+    for (const id of ['btn-add-frame', 'btn-reset-point', 'btn-copy-here', 'btn-export', 'btn-import', 'btn-save-formation', 'btn-menu-save-formation', 'btn-presets', 'btn-new-point']) {
+      if ($(id)) $(id).disabled = busy;
+    }
+    // Upright phones show the short label (the long one does not fit in English).
+    $('btn-add-frame').replaceChildren(...(cur < 0 ? [t('nav.serve')]
+      : [h('span', { className: 'l', textContent: t('nav.add') }), h('span', { className: 's', textContent: t('nav.addShort') })]));
+    $('copy-here-label').textContent = cur < 0 ? t('menu.copyStart') : t('menu.copyUpTo', { n: cur + 1 });
+    document.body.classList.toggle('at-start', cur < 0);
+    // The point on screen stays un-openable (its row is redrawn only when the list is saved).
+    document.querySelectorAll('#presets button, .saved-list button, [data-shot]').forEach((b) => {
+      b.disabled = busy || (b.classList.contains('open') && !!b.closest('li.current'));
+    });
+  }
+  const setOn = (b, on) => { b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on)); };
+  // 1打目 (and the スタート step) show the serve row; later shots the rally row.
+  function renderShotRows(busy) {
+    document.querySelectorAll('[data-shot]').forEach((b) => setOn(b, b.dataset.shot === board.shot.type));
+    const serveView = cur <= 0;
+    $('rally-row').hidden = serveView;
+    $('serve-row').hidden = !serveView;
+    $('shot-title').textContent = t(serveView ? 'shot.titleServe' : 'shot.title');
+    if (!serveView) return;
+    const st = serveState(), sv = st.shot.serve;
+    document.querySelectorAll('[data-serve]').forEach((b) => { setOn(b, b.dataset.serve === st.shot.type); b.disabled = busy; });
+    const hand = sv.hand === 'R' ? 'serve.right' : 'serve.left';
+    $('btn-hand').replaceChildren(h('span', { className: 'l', textContent: t(hand) }), h('span', { className: 's', textContent: t(hand + 'Short') }));
+    $('btn-side').textContent = t(sv.side === 'deuce' ? 'serve.deuce' : 'serve.ad');
+    $('btn-hand').disabled = busy;
+    $('btn-side').disabled = busy || frames.length > 0;
+    $('btn-side').title = t(frames.length > 0 ? 'serve.sideLocked' : 'serve.sideTitle');
+  }
+  // Numbered shots (wide screens).
+  function renderFrameStrip(busy) {
+    $('frames-strip').replaceChildren(...(frames.length ? [] : [h('span', { className: 'frames-empty', textContent: t('strip.empty') })]),
+      ...frames.map((f, i) => h('button', { className: 'frame-dot' + (i === cur ? ' cur' : ''), textContent: i + 1, disabled: busy,
+        title: t('shot.' + f.shot.type) + (f.shot.bounce ? '' : t('strip.noBounce')), aria: { label: t('strip.show', { n: i + 1 }) }, onclick: () => goFrame(i) })));
+  }
+
+  function markEdited() {
+    activePreset = null;
+    renderPresets();
+  }
+
+  // Dragging players, the ball and the shot handles.
+  // Part of one script with src/model/* (see tools/build.js): names are shared, no imports.
+  // ---- Pointer interaction
+  function toSvg(evt) {
+    const pt = svg.createSVGPoint();
+    pt.x = evt.clientX; pt.y = evt.clientY;
+    const m = svg.getScreenCTM();
+    return m ? pt.matrixTransform(m.inverse()) : { x: 0, y: 0 };
+  }
+  const clampX = (x) => Math.max(VB.x + 3, Math.min(VB.x + VB.w - 3, x));
+  const clampY = (y) => Math.max(VB.y + 3, Math.min(VB.y + VB.h - 3, y));
+  const isHandle = (id) => HANDLES.includes(id);
+  const isGhost = (id) => id.startsWith('ghost-');
+  const posOf = (id) => (isHandle(id) ? handlePos(id) : isGhost(id) ? startOf(cur)[id.slice(6)] : board.pieces[id]);
+
+  let gesture = null;
+
+  svg.addEventListener('pointerdown', (e) => {
+    if (playing || gesture || (e.pointerType === 'mouse' && e.button !== 0)) return;
+    stopGlide();
+    const p = toSvg(e);
+    if (!e.target.closest('.piece')) return;
+    // Hit areas overlap (the ball's is enlarged for touch), so pick the nearest piece centre.
+    const id = pieceAt(p);
+    if (!id) return;
+    const pieceEl = pieceEls[id];
+    const pos = posOf(id);
+    // Players stay on their side of the net; before the serve the server also stays in the serving spot.
+    const team = TEAM_OF[isGhost(id) ? id.slice(6) : id], serveLimit = serveSpotLimit(id);
+    const limit = team === 'own' || team === 'opp' ? (q) => { const s = keepOnSide(team, q); return serveLimit ? serveLimit(s) : s; } : serveLimit;
+    gesture = { id: e.pointerId, piece: id, dx: pos.x - p.x, dy: pos.y - p.y, moved: false, limit, from: p, far: 0 };
+    // On the スタート step the serve ball goes along with the server, keeping where it was relative to them.
+    if (cur < 0 && id === serverId(board)) gesture.ballOff = { x: board.pieces.ball.x - pos.x, y: board.pieces.ball.y - pos.y };
+    if (pieceEl) pieceEl.classList.add('dragging');
+    if (!isHandle(id) && !isGhost(id)) {
+      pieceEl.parentNode.appendChild(pieceEl); // bring to front
+      pieceEl.parentNode.appendChild(pieceEls.ball); // ball stays on top
+    }
+    try { svg.setPointerCapture(e.pointerId); } catch (_) {}
+    e.preventDefault();
+  });
+
+  svg.addEventListener('pointermove', (e) => {
+    if (!gesture || e.pointerId !== gesture.id) return;
+    const p = toSvg(e);
+    gesture.far = Math.max(gesture.far, Math.hypot(p.x - gesture.from.x, p.y - gesture.from.y));
+    let to = { x: clampX(p.x + gesture.dx), y: clampY(p.y + gesture.dy) };
+    if (gesture.limit) to = gesture.limit(to);
+    moveTo(gesture.piece, to);
+    if (gesture.ballOff) moveTo('ball', { x: to.x + gesture.ballOff.x, y: to.y + gesture.ballOff.y });
+    gesture.moved = true;
+    renderLive();
+  });
+
+  function endGesture(e, cancelled) {
+    if (!gesture || e.pointerId !== gesture.id) return;
+    const g = gesture;
+    gesture = null;
+    try { svg.releasePointerCapture(e.pointerId); } catch (_) {}
+    if (pieceEls[g.piece]) pieceEls[g.piece].classList.remove('dragging');
+    // A tap (no real drag) on a player on the スタート step swaps that pair's numbers (in mixed doubles: the man and the woman).
+    if (!cancelled && g.far < 1.5 && cur < 0 && TEAM_OF[g.piece] && TEAM_OF[g.piece] !== 'ball') {
+      setPeople(swapPair(people, g.piece));
+      return;
+    }
+    if (g.moved && !cancelled) {
+      const before = snapshotPlayers();
+      if (!isHandle(g.piece) && g.piece !== 'ball') recomputeAuto(isGhost(g.piece) ? cur : cur + 1); // later shots start from here
+      autoAfterDrop(g.piece);
+      markEdited(); render();
+      if (cur < 0) renderPresets(); // who serves / returns on the deuce side may have changed
+      glide(before);
+    }
+  }
+  svg.addEventListener('pointerup', (e) => endGesture(e, false));
+  svg.addEventListener('pointercancel', (e) => endGesture(e, true));
+
+  // Until the serve is hit the server stays where a serve may be hit from: on the スタート step, and as the
+  // hit-moment spot (ghost) on 1打目. Where they move while it flies (serve and volley) is free.
+  function serveSpotLimit(id) {
+    if (cur > 0) return null;
+    const st = serveState(), pid = cur < 0 ? id : isGhost(id) ? id.slice(6) : null;
+    if (!pid || pid !== serverId({ pieces: { ...(cur < 0 ? board.pieces : startOf(0)), ball: st.pieces.ball } })) return null;
+    return (pos) => clampServeSpot(st.shot.serve.side, servesUp(st.pieces.ball), pos);
+  }
+  // The same for an arrangement put on the スタート step (a マイ陣形 may have been saved with the server anywhere).
+  function keepServerInPlace() {
+    const st = serveState(), sid = serverId({ pieces: { ...(st.start || st.pieces), ball: st.pieces.ball } });
+    const fix = (set) => { set[sid] = clampServeSpot(st.shot.serve.side, servesUp(st.pieces.ball), set[sid]); };
+    if (inSetup()) { fix(st.start); fix(st.pieces); board = setupBoard(); } else fix(board.pieces);
+  }
+  function moveTo(id, pos) {
+    if (inSetup()) { if (!isHandle(id) && !isGhost(id)) moveInSetup(id, pos); return; }
+    if (id === 'land') { board.shot.land = isServe(board) ? clampLand(board, pos) : pos; syncNextBall(); }
+    else if (id === 'bend') { setServeBend(board, pos); syncNextBall(); }
+    else if (id === 'dir') { setServeAfter(board, pos); syncNextBall(); }
+    else if (isGhost(id)) {
+      const pid = id.slice(6);
+      if (cur > 0) { frames[cur - 1].pieces[pid] = pos; setManual(frames[cur - 1], pid); }
+      else if (cur === 0) (board.start || (board.start = playersOf(board.pieces)))[pid] = pos;
+    } else {
+      board.pieces[id] = pos;
+      if (id !== 'ball') setManual(board, id); // the user decides this player's move from now on
+      if (id === 'ball' && isServe(board)) { // the serve is hit from a legal spot and lands in the box
+        board.pieces.ball = clampServeBall(board.shot.serve.side, pos);
+        board.shot.land = clampLand(board, board.shot.land);
+        syncNextBall();
+      } else if (id === 'ball') { snapBallToPrev(); syncNextBall(); } // return point stays on the incoming line
+    }
+  }
+
+  // Handles are small and placed on purpose, so they win over a player or ball underneath.
+  function pieceAt(p) {
+    const nearest = (ids, radius) => {
+      let best = null, bestD = Infinity;
+      for (const id of ids) {
+        const q = posOf(id);
+        if (!q) continue;
+        const d = Math.hypot(q.x - p.x, q.y - p.y);
+        if (d <= radius(id) && d < bestD) { best = id; bestD = d; }
+      }
+      return best;
+    };
+    return nearest(playing || cur < 0 ? [] : HANDLES, () => HANDLE_R)
+      || nearest(PIECES.map((pc) => pc.id), (id) => (id === 'ball' ? 9 : R_PLAYER + 1))
+      || nearest(PLAYERS.filter((pc) => ghostShown(pc.id)).map((pc) => 'ghost-' + pc.id), () => R_PLAYER);
+  }
+
+  // 陣形 / マイ陣形 (start arrangements) and loading a sample.
+  // Part of one script with src/model/* (see tools/build.js): names are shared, no imports.
+  // ---- 陣形 (only on the スタート step): built-in arrangements plus the user's 「マイ陣形」.
+  function renderPresets() {
+    const busy = !!playing;
+    const group = (label, ...items) => h('div', { className: 'preset-group' }, h('div', { className: 'label', textContent: label }), h('div', { className: 'row' }, ...items));
+    const presetBtn = (id, name, onclick, dataset) =>
+      h('button', { className: 'btn small preset' + (id === activePreset ? ' active' : ''), textContent: name, onclick, dataset, disabled: busy });
+    const mine = readList(LS_FORMATIONS);
+    const tagged = (cls, e) => { e.classList.add(cls); return e; };
+    const seg = (items) => h('div', { className: 'seg' }, ...items.map(([text, on, onclick, dataset]) =>
+      h('button', { className: 'btn small' + (on ? ' on' : ''), textContent: text, disabled: busy, onclick, dataset, aria: { pressed: String(on) } })));
+    // Seen from our pair (1・2): do we serve or return? Then the event, who serves and who returns on the deuce side,
+    // and the 陣形 of that scene.
+    const scene = sceneOf();
+    $('presets').replaceChildren(
+      group(t('scene.label'), seg(PRESETS.map((grp) => [t('group.' + grp.id), scene === grp.id, () => setScene(grp.id), { scene: grp.id }]))),
+      group(t('people.kind'), seg(KINDS.map((k) => [t('people.' + k), people.kind === k, () => setPeople({ ...people, kind: k }), { kind: k }]))),
+      ...whoRows(seg, group),
+      tagged('formations', group(t('presets.formation'), ...PRESETS.find((grp) => grp.id === scene).items.map((it) => presetBtn(it.id, t('preset.' + it.id), () => applyStart(presetState(it), it.id), { preset: it.id })))),
+      tagged('mine-group', group(t('presets.mine'),
+        ...(mine.length ? [] : [h('span', { className: 'preset-empty', textContent: t('presets.empty') })]),
+        ...mine.map((it) => h('span', { className: 'mine' },
+          presetBtn(it.id, it.name, () => {
+            if (!isValidState(it.state)) { toast(t('toast.broken')); return; }
+            applyStart(normalize(it.state), it.id);
+          }, { formation: it.id }),
+          h('button', { className: 'btn small danger del', textContent: '×', disabled: busy, aria: { label: t('presets.deleteAria', { name: it.name }) }, onclick: () => {
+            if (!confirm(t('confirm.deleteFormation', { name: it.name }))) return;
+            writeList(LS_FORMATIONS, readList(LS_FORMATIONS).filter((x) => x.id !== it.id));
+            renderPresets();
+          } }))),
+        h('button', { className: 'btn small', id: 'btn-save-formation', textContent: t('presets.save'), title: t('presets.saveTitle'), disabled: busy, onclick: saveFormation }))));
+  }
+
+  // Puts an arrangement on the スタート step. With shots already made, frame 1 starts from it without movement.
+  function applyStart(st, id, keepOpen = false) {
+    if (playing || cur >= 0) return;
+    if (inSetup()) {
+      const f = frames[0];
+      f.start = playersOf(st.pieces);
+      for (const p of PLAYERS) f.pieces[p.id] = { ...st.pieces[p.id] };
+      f.pieces.ball = { ...st.pieces.ball };
+      f.shot = st.shot;
+      ensureServe(f);
+      resyncAfterServe();
+      board = setupBoard();
+    } else {
+      board = ensureServe(st);
+      stripCatch(board);
+      delete board.note;
+    }
+    keepServerInPlace();
+    activePreset = id;
+    renderPresets(); render();
+    if (!keepOpen) setOverlay(null);
+  }
+
+  function saveFormation() {
+    if (playing || cur >= 0) return;
+    const list = readList(LS_FORMATIONS);
+    const fallback = t('presets.defaultName', { n: list.length + 1 });
+    const name = prompt(t('prompt.formationName'), fallback);
+    if (name === null) return;
+    const state = clone(board);
+    stripCatch(state);
+    delete state.note;
+    const it = { id: uid(), name: name.trim().slice(0, 40) || fallback, savedAt: Date.now(), state };
+    list.unshift(it);
+    if (writeList(LS_FORMATIONS, list)) {
+      activePreset = it.id;
+      renderPresets();
+      toast(t('toast.formationSaved', { name: it.name }));
+    }
+  }
+  $('btn-menu-save-formation').addEventListener('click', saveFormation);
+
+  // Loads a sample rally as the current point and plays it.
+  function loadSample(smp) {
+    if (playing) playing.stop(false);
+    setOverlay(null);
+    saveNow();
+    frames = fixCatches(migrateV1(smp.frames.map((f, i) => normalize({ ...f, note: t(`sample.${smp.id}.${i + 1}`) }))));
+    viewingSample = smp;
+    people = defaultPeople(); // samples are drawn with the plain 1 / 2 / A / B
+    activePreset = null;
+    renderPresets();
+    loadFrame(0);
+    lastSavedKey = dataKey(snapshot());
+    renderLists();
+    play();
+  }
+
+  function setPeople(v) {
+    if (playing) return;
+    people = normalizePeople(v);
+    renderPresets();
+    render();
+  }
+
+  // Who serves and who returns on the deuce side, by number (in mixed doubles 1 / A is the man): the pairs' numbers
+  // are swapped to match — nobody moves. Tapping a player does the same.
+  function whoRows(seg, group) {
+    const st = serveState(), at = { ...(st.start || st.pieces), ball: st.pieces.ball };
+    const server = serverId({ pieces: at }), deuce = deuceReceiver(st.shot.serve ? st.shot.serve.side : guessSide(st.pieces.ball), serveReceiver({ pieces: at }, at).id);
+    const pick = (id, key) => {
+      const labels = PLAYERS.filter((x) => x.team === TEAM_OF[id]).map((x) => x.label);
+      return seg([0, 1].map((n) => [labels[n] + (people.kind === 'mixed' ? ' ' + t(n === 0 ? 'people.man' : 'people.woman') : ''),
+        numberOf(people, id) === n, () => setPeople(setNumber(people, id, n)), { [key]: n }]));
+    };
+    return [
+      group(t('people.serve'), pick(server, 'server')),
+      group(t('people.deuceReturn'), pick(deuce, 'deuceReturner')),
+      h('p', { className: 'hint people-hint', textContent: t(people.kind === 'mixed' ? 'people.tapHintMixed' : 'people.tapHint') }),
+    ];
+  }
+  // Which pair serves on the スタート step: 'serve' when we (1・2) do, else 'return'.
+  const sceneOf = () => (servesUp(serveState().pieces.ball) ? 'serve' : 'return');
+  // Switching the scene puts its basic 陣形 on the スタート step (the numbers picked stay).
+  function setScene(id) {
+    if (playing || cur >= 0 || sceneOf() === id) return;
+    const it = PRESETS.find((grp) => grp.id === id).items[0];
+    applyStart(presetState(it), it.id, true);
+  }
+
+  // Screen layouts, overlays (list, 陣形, 「…」) and keyboard keys.
+  // Part of one script with src/model/* (see tools/build.js): names are shared, no imports.
+  // ---- Layout: 'phone' (upright phone), 'tall' (upright tablet), 'land' (sideways phone), 'wide' (tablet landscape / PC).
+  // The list, 陣形 and 「…」 are overlays except on 'wide', where they are columns / cards that stay on screen.
+  let layout = null;
+  let overlay = null; // 'library' | 'presets' | 'menu'
+  const OVERLAYS = { library: 'library', presets: 'presets-card', menu: 'menu' };
+  const ANCHORS = { presets: 'btn-presets', menu: 'btn-more' };
+  const LS_LIST_COLLAPSED = 'tennisBoard.listCollapsed';
+  const layoutOf = () => {
+    const w = innerWidth, h = innerHeight;
+    return w >= 1000 && w >= h ? 'wide' : w > h ? 'land' : w < 700 ? 'phone' : 'tall';
+  };
+  function applyLayout() {
+    const l = layoutOf();
+    if (l !== layout) {
+      layout = l;
+      document.body.dataset.layout = l;
+      setOverlay(null);
+    } else placeOverlay();
+  }
+  function setOverlay(name) {
+    if (name && layout === 'wide') {
+      if (name === 'library') { // the list column folds away
+        const c = document.body.classList.toggle('list-collapsed');
+        try { localStorage.setItem(LS_LIST_COLLAPSED, c ? '1' : ''); } catch (_) {}
+      }
+      return;
+    }
+    if (name === 'library' && saveTimer) saveNow(); // show the list with the latest edit
+    overlay = name;
+    for (const [k, id] of Object.entries(OVERLAYS)) $(id).classList.toggle('open', k === name);
+    const bd = $('backdrop');
+    bd.classList.toggle('open', !!name);
+    bd.classList.toggle('dim', !!name && (layout === 'phone' || name === 'library'));
+    placeOverlay();
+  }
+  // Small pop-ups next to their button on tablets and sideways phones.
+  function placeOverlay() {
+    for (const [k, id] of Object.entries(OVERLAYS)) {
+      const e = $(id), st = e.style;
+      st.left = st.top = st.bottom = st.width = st.maxHeight = '';
+      if (k !== overlay || !ANCHORS[k] || (layout !== 'tall' && layout !== 'land')) continue;
+      const r = $(ANCHORS[k]).getBoundingClientRect(), vw = innerWidth, vh = innerHeight;
+      // A sideways phone has little height: the 陣形 pop-up takes the whole height and the width (in two columns, see style.css).
+      const tallList = k === 'presets' && layout === 'land', w = Math.min(tallList ? 660 : k === 'presets' ? 420 : 340, vw - 16);
+      st.width = w + 'px';
+      st.left = clamp(tallList ? r.right - w : r.left, 8, vw - w - 8) + 'px';
+      if (tallList) { st.top = '8px'; st.maxHeight = (vh - 16) + 'px'; }
+      else if (r.top > vh / 2) { st.bottom = (vh - r.top + 6) + 'px'; st.maxHeight = (r.top - 14) + 'px'; }
+      else { st.top = (r.bottom + 6) + 'px'; st.maxHeight = (vh - r.bottom - 14) + 'px'; }
+    }
+  }
+  $('btn-library').addEventListener('click', () => setOverlay(overlay === 'library' ? null : 'library'));
+  $('btn-presets').addEventListener('click', () => { if (!playing && cur < 0) setOverlay('presets'); });
+  $('btn-more').addEventListener('click', () => setOverlay(overlay === 'menu' ? null : 'menu'));
+  document.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', () => setOverlay(null)));
+  $('backdrop').addEventListener('click', () => setOverlay(null));
+  // A 「…」 item closes the menu once it has done its job.
+  $('menu').addEventListener('click', (e) => { if (overlay === 'menu' && e.target.closest('button')) setOverlay(null); });
+  addEventListener('resize', applyLayout);
+
+  // ---- Keyboard (PC): ← → move between shots, Space plays / stops, Enter adds the next shot.
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { setOverlay(null); return; }
+    if (overlay || e.altKey || e.ctrlKey || e.metaKey || e.isComposing) return;
+    const t = e.target;
+    if (t.closest && t.closest('input, textarea, select, [contenteditable]')) return;
+    const k = e.key;
+    if (k === 'ArrowLeft' || k === 'ArrowRight') {
+      e.preventDefault();
+      goFrame(cur + (k === 'ArrowLeft' ? -1 : 1));
+      return;
+    }
+    if (k !== ' ' && k !== 'Enter') return;
+    const b = t.closest && t.closest('button');
+    if (b && b.matches(':focus-visible')) return; // a keyboard user pressing the focused button
+    if (b) b.blur(); // focus left by a click must not also press that button
+    e.preventDefault();
+    if (e.repeat) return;
+    if (k === ' ') $('btn-play').click();
+    else $('btn-add-frame').click();
+  });
+
+  // Shot / serve settings and moving between shots.
+  // Part of one script with src/model/* (see tools/build.js): names are shared, no imports.
+  // ---- Shot settings (for the ball hit in this frame)
+  document.querySelectorAll('[data-shot]').forEach((b) => b.addEventListener('click', () => {
+    if (playing) return;
+    board.shot.type = b.dataset.shot;
+    markEdited(); render();
+  }));
+
+  // ---- Serve settings (1打目). On the スタート step they apply to frame 1.
+  const serveState = () => (inSetup() ? frames[0] : board);
+  function afterServeChange() {
+    if (inSetup()) board = setupBoard();
+    resyncAfterServe();
+    markEdited(); render();
+  }
+  document.querySelectorAll('[data-serve]').forEach((b) => b.addEventListener('click', () => {
+    if (playing) return;
+    const st = serveState(), sv = st.shot.serve;
+    st.shot.type = b.dataset.serve;
+    Object.assign(sv, serveShape(b.dataset.serve, sv.hand)); // switching resets the shape to that serve's
+    afterServeChange();
+  }));
+  $('btn-hand').addEventListener('click', () => {
+    if (playing) return;
+    const st = serveState(), sv = st.shot.serve;
+    sv.hand = sv.hand === 'R' ? 'L' : 'R';
+    Object.assign(sv, serveShape(st.shot.type, sv.hand));
+    afterServeChange();
+  });
+  $('btn-side').addEventListener('click', () => {
+    if (playing || frames.length > 0) return; // only on the スタート step, before 1打目へ
+    flipServeSide(serveState());
+    afterServeChange();
+  });
+
+  // ---- Frames
+  function loadFrame(i) {
+    stopGlide();
+    cur = i;
+    board = i < 0 ? setupBoard() : frames[i];
+    render();
+  }
+  function goFrame(i) {
+    if (playing || i < -1 || i >= frames.length || (i < 0 && !frames.length)) return;
+    loadFrame(i);
+  }
+
+  $('btn-add-frame').addEventListener('click', () => {
+    if (inSetup()) { goFrame(0); return; }
+    if (!frames.length) {
+      ensureServe(board);
+      board.start = playersOf(board.pieces);
+      board.autoMove = ALL_PLAYERS.slice();
+      frames = [board];
+      cur = 0;
+      render();
+      toast(t('toast.serve'));
+      return;
+    }
+    // The next shot is hit on this one's line, in front of the receiver closest to it (see defaultReturn).
+    // The shot and caption belong to the old moment.
+    const next = clone(board);
+    const after = nextFrame();
+    next.catch = after ? { ...after.catch } : defaultReturn(board, startOf(cur), board.pieces); // an inserted frame takes over the old return
+    const ball = catchPoint(board, next.catch);
+    next.pieces.ball = ball;
+    next.shot = { type: 'normal', land: defaultBounce(ball), bounce: true };
+    delete next.note;
+    delete next.start;
+    next.autoMove = ALL_PLAYERS.slice(); // everyone moves automatically until the user moves them
+    frames.splice(cur + 1, 0, next);
+    if (after) { after.catch = fullCatch(next); after.pieces.ball = catchPoint(next, after.catch); }
+    loadFrame(cur + 1);
+    toast(t('toast.shot', { n: cur + 1 }));
+  });
+  $('btn-first').addEventListener('click', () => goFrame(0));
+  $('btn-prev').addEventListener('click', () => goFrame(cur - 1));
+  $('btn-next').addEventListener('click', () => goFrame(cur + 1));
+  $('btn-last').addEventListener('click', () => goFrame(frames.length - 1));
+  $('btn-copy-here').addEventListener('click', copyHere);
+  $('btn-del-frame').addEventListener('click', () => {
+    if (cur < 0) return;
+    const [removed] = frames.splice(cur, 1);
+    if (cur === 0 && frames.length) {
+      frames[0].start = playersOf(removed.start || removed.pieces);
+      delete frames[0].catch;
+      ensureServe(frames[0]); // the new first shot is the serve
+      resyncAfterServe();
+    }
+    const f = frames[cur];
+    if (cur > 0 && f) { f.catch = projectCatch(frames[cur - 1], f.pieces.ball); f.pieces.ball = catchPoint(frames[cur - 1], f.catch); }
+    if (!frames.length) { cur = -1; board = ensureServe(clone(removed)); stripCatch(board); render(); }
+    else loadFrame(Math.min(cur, frames.length - 1));
+    toast(t('toast.deleted'));
+  });
+  $('btn-reset-point').addEventListener('click', () => newPointFromHere());
+
+  // ---- Automatic moves (see autoMoves). A shot's automatic players stay put until its line is placed:
+  // dropping ×, ◇ or ○ works out that shot's moves, dropping the return ball works out the shot before it
+  // (whose returner goes to it). Nothing moves while dragging; after a drop the players glide there.
+  const ALL_PLAYERS = PLAYERS.map((p) => p.id);
+  const LS_AUTO_SHIFT = 'tennisBoard.autoShift';
+  let autoShift = true;
+  try { autoShift = localStorage.getItem(LS_AUTO_SHIFT) !== '0'; } catch (_) {}
+  const isAuto = (f, id) => !!(f && f.autoMove && f.autoMove.includes(id));
+  const setManual = (f, id) => { if (isAuto(f, id)) f.autoMove = f.autoMove.filter((x) => x !== id); };
+  // Works out the automatic moves of shot k and of the later shots already worked out (they start from it).
+  function recomputeAuto(k) {
+    for (let i = Math.max(0, k); i < frames.length; i++) {
+      const f = frames[i];
+      if (!f.autoOn || !f.autoMove || !f.autoMove.length) continue;
+      const from = startOf(i), next = frames[i + 1];
+      const ret = next ? next.pieces.ball : catchPoint(f, defaultReturn(f, from, from));
+      const pos = autoMoves(f, from, ret, { shift: autoShift });
+      for (const id of f.autoMove) f.pieces[id] = pos[id];
+    }
+  }
+  // After a drop: the shot it concerns (see above) gets its automatic moves (the caller then glides).
+  function autoAfterDrop(piece) {
+    if (cur < 0) return;
+    const k = HANDLES.includes(piece) ? cur : piece === 'ball' ? Math.max(0, cur - 1) : -1;
+    if (k < 0) return;
+    if (frames[k].autoMove) frames[k].autoOn = true;
+    if (piece === 'ball' && cur > 0) { // whoever hits it goes to the ball, even a player moved by hand
+      const f = frames[k], from = startOf(k), ret = board.pieces.ball, r = returnerOf(f, from, ret);
+      f.pieces[r.id] = returnSpot(r, ret);
+    }
+    recomputeAuto(k);
+  }
+  const snapshotPlayers = () => ({ now: playersOf(board.pieces), start: cur >= 0 ? playersOf(startOf(cur)) : null });
+  let glideRaf = 0;
+  function stopGlide() { cancelAnimationFrame(glideRaf); glideRaf = 0; }
+  function glide(before, ms = 300) {
+    stopGlide();
+    const after = snapshotPlayers();
+    const moved = (a, b) => PLAYERS.some((p) => Math.hypot(a[p.id].x - b[p.id].x, a[p.id].y - b[p.id].y) > 0.05);
+    if (!moved(before.now, after.now) && !(before.start && moved(before.start, after.start))) return;
+    const t0 = performance.now();
+    const step = (now) => {
+      const u = Math.min(1, (now - t0) / ms), e = ease(u);
+      const mix = (a, b) => { const o = {}; for (const p of PLAYERS) o[p.id] = { x: lerp(a[p.id].x, b[p.id].x, e), y: lerp(a[p.id].y, b[p.id].y, e) }; return o; };
+      renderPieces({ ...mix(before.now, after.now), ball: board.pieces.ball }, 0);
+      if (after.start) renderMoves(mix(before.start, after.start), { ...board, pieces: { ...board.pieces, ...mix(before.now, after.now) } });
+      if (u < 1) glideRaf = requestAnimationFrame(step); else { glideRaf = 0; renderLive(); }
+    };
+    step(t0);
+  }
+  function renderAutoShift() {
+    document.querySelectorAll('[data-auto-shift]').forEach((b) => setOn(b, (b.dataset.autoShift === 'on') === autoShift));
+  }
+  $('auto-shift-seg').append(...['on', 'off'].map((v) => h('button', { className: 'btn small', dataset: { autoShift: v, i18n: 'common.' + v }, textContent: t('common.' + v),
+    onclick: () => {
+      autoShift = v === 'on';
+      try { localStorage.setItem(LS_AUTO_SHIFT, autoShift ? '1' : '0'); } catch (_) {}
+      renderAutoShift();
+      if (playing) return;
+      const before = snapshotPlayers();
+      recomputeAuto(0); // only shots whose moves were already worked out
+      markEdited(); render();
+      glide(before);
+    } })));
+  renderAutoShift();
+
+  // Playback.
+  // Part of one script with src/model/* (see tools/build.js): names are shared, no imports.
+  // ---- Playback: segment k = frame k's shot in the air while the players move from where they
+  // stood at the hit (startOf(k)) to frame k's positions.
+  const HOLD_MS = 300;
+  // Playback speed (1 = real-ish tempo). Default a bit slower so movements can be followed.
+  const SPEEDS = [1, 0.75, 0.5, 0.3];
+  const LS_SPEED = 'tennisBoard.speed';
+  let speed = 0.75;
+  try { const v = parseFloat(localStorage.getItem(LS_SPEED)); if (SPEEDS.includes(v)) speed = v; } catch (_) {}
+  function renderSpeed() {
+    document.querySelectorAll('[data-speed]').forEach((b) => setOn(b, +b.dataset.speed === speed));
+  }
+  $('speed-seg').append(...SPEEDS.map((v) => h('button', { className: 'btn small', textContent: '×' + v, dataset: { speed: v }, onclick: () => {
+    speed = v;
+    try { localStorage.setItem(LS_SPEED, String(speed)); } catch (_) {}
+    renderSpeed();
+  } })));
+  renderSpeed();
+  function play() {
+    if (!canPlay()) return;
+    if (saveTimer) saveNow(); // nothing is saved while playing, so keep the latest edit first
+    const segs = frames.map((f, k) => {
+      const from = startOf(k);
+      return { k, a: f, from, last: k === frames.length - 1,
+        c: frames[k + 1] ? frames[k + 1].catch : fullCatch(f), hitTeam: hittingTeam(from, f.pieces.ball) };
+    });
+    let si = 0, last = null, elapsed = 0; // elapsed = speed-scaled time within the current shot
+    loadFrame(0);
+    const state = { raf: 0 };
+    playing = state;
+    state.stop = (completed) => {
+      cancelAnimationFrame(state.raf);
+      playing = null;
+      loadFrame(completed ? frames.length - 1 : cur);
+    };
+    render();
+    renderMoves(null);
+    renderHandles(false);
+    renderPieces({ ...segs[0].from, ball: frames[0].pieces.ball }, 0);
+    const step = (now) => {
+      if (playing !== state) return;
+      if (last !== null) elapsed += (now - last) * speed;
+      last = now;
+      const seg = segs[si];
+      // A ball taken early (a poach at the net) is in the air for less time than the full line.
+      const full = legsFor(seg.a, fullCatch(seg.a)).reduce((s, l) => s + legLen(l), 0) || 1;
+      const flown = legsFor(seg.a, seg.c).reduce((s, l) => s + legLen(l), 0);
+      const D = SHOT_TYPES[seg.a.shot.type].ms * (seg.last ? 0.8 : 1) * Math.max(0.35, Math.min(1.3, flown / full));
+      if (cur !== seg.k) {
+        cur = seg.k;
+        renderCaption(frames[cur].note);
+        renderControls();
+      }
+      const u = Math.min(1, elapsed / D);
+
+      const pieces = {};
+      for (const p of PLAYERS) {
+        const a = seg.from[p.id], b = seg.a.pieces[p.id];
+        const e = p.team === seg.hitTeam ? ease(u) : chase(u);
+        pieces[p.id] = { x: lerp(a.x, b.x, e), y: lerp(a.y, b.y, e) };
+      }
+      const legs = legsFor(seg.a, seg.c);
+      const lens = legs.map(legLen), total = lens.reduce((s, v) => s + v, 0) || 1;
+      let li = 0, acc = 0;
+      while (li < legs.length - 1 && (acc + lens[li]) / total < u) { acc += lens[li]; li++; }
+      const v = Math.min(1, Math.max(0, (u * total - acc) / (lens[li] || 1)));
+      pieces.ball = legPoint(legs[li], v);
+      const h = heightAt(legs[li], v);
+      renderPieces(pieces, h);
+      renderTrail(recent(seg.k), { a: seg.a, c: seg.c, li, v });
+
+      if (elapsed >= D + HOLD_MS) {
+        si += 1; elapsed = 0;
+        if (si >= segs.length) { state.stop(true); return; }
+      }
+      state.raf = requestAnimationFrame(step);
+    };
+    state.raf = requestAnimationFrame(step);
+  }
+  $('btn-play').addEventListener('click', () => { if (playing) playing.stop(false); else play(); });
+
+  // Saving: the point list, マイ陣形 storage, toasts.
+  // Part of one script with src/model/* (see tools/build.js): names are shared, no imports.
+  // ---- Persistence
+  function readList(key) {
+    try { const v = JSON.parse(localStorage.getItem(key) || '[]'); return Array.isArray(v) ? v : []; }
+    catch (_) { return []; }
+  }
+  function writeList(key, list) {
+    try { localStorage.setItem(key, JSON.stringify(list)); return true; }
+    catch (_) { toast(t('toast.storage')); return false; }
+  }
+  const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+  const fmtDate = (ts) => {
+    const d = new Date(ts);
+    return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  };
+  function isValidState(s) {
+    return s && s.pieces && PIECES.every((p) => s.pieces[p.id] && isFinite(s.pieces[p.id].x) && isFinite(s.pieces[p.id].y));
+  }
+
+  function renderLists() {
+    renderPresets();
+    renderPointList(); // and the samples under it
+    if (playing) renderControls();
+  }
+
+  // ---- Toast
+  let toastTimer = 0;
+  function toast(msg) {
+    const t = $('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => t.classList.remove('show'), 2200);
+  }
+
+  // ---- Point list: every point is kept automatically (no save button).
+  // Storage: { v, currentId, points: [{ id, name, createdAt, updatedAt, frames, start, cur, origin? }] }.
+  // `start` holds the board while a point has no shots yet; origin = { id, name, shot } for copies.
+  const LS_LIBRARY = 'tennisBoard.library.v1';
+  const LS_DRAFT = 'tennisBoard.draft.v1'; // pre-list work in progress, imported once
+  let library = { v: 1, currentId: null, points: [] };
+  let viewingSample = null; // a sample on screen; it joins the list only once edited
+  let lastSavedKey = null;
+  let saveTimer = 0;
+  const currentPoint = () => library.points.find((x) => x.id === library.currentId) || null;
+  const snapshot = () => ({ ...(frames.length ? { frames: clone(frames), start: null, cur } : { frames: [], start: clone(board), cur: -1 }), people: clone(people) });
+  const dataKey = (snap) => JSON.stringify([snap.frames, snap.start, snap.people]); // what counts as an edit (not cur)
+  function writeLibrary() {
+    try { localStorage.setItem(LS_LIBRARY, JSON.stringify(library)); } catch (_) { /* storage unavailable */ }
+  }
+  function makePoint(name, snap, origin) {
+    const now = Date.now();
+    return { id: uid(), name, createdAt: now, updatedAt: now, v: 2, frames: snap.frames, start: snap.start, cur: snap.cur, people: snap.people || clone(people), ...(origin ? { origin } : {}) };
+  }
+  function nextName(base = t('point.base')) {
+    const names = new Set(library.points.map((x) => x.name));
+    let i = library.points.length + 1;
+    while (names.has(`${base} ${i}`)) i++;
+    return `${base} ${i}`;
+  }
+  function saveNow() {
+    clearTimeout(saveTimer);
+    saveTimer = 0;
+    if (playing) return;
+    const snap = snapshot(), key = dataKey(snap);
+    if (viewingSample) {
+      if (key === lastSavedKey) return; // an untouched sample is not kept
+      const p = makePoint(sampleName(viewingSample), snap, { sample: true, name: t('sample.label') });
+      library.points.unshift(p);
+      library.currentId = p.id;
+      viewingSample = null;
+      toast(t('toast.sampleCopied'));
+    } else {
+      let p = currentPoint();
+      if (!p) { p = makePoint(nextName(), snap); library.points.unshift(p); library.currentId = p.id; }
+      p.cur = snap.cur;
+      if (key !== lastSavedKey) { p.frames = snap.frames; p.start = snap.start; p.people = snap.people; p.updatedAt = Date.now(); }
+    }
+    lastSavedKey = key;
+    writeLibrary();
+    renderPointList();
+  }
+  function queueDraftSave() {
+    if (playing) return;
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(saveNow, 250);
+  }
+  // iOS can drop a page in the background without warning, so flush when it is hidden.
+  addEventListener('pagehide', () => { if (saveTimer) saveNow(); });
+  document.addEventListener('visibilitychange', () => { if (document.hidden && saveTimer) saveNow(); });
+
+  function openPoint(p) {
+    if (playing) playing.stop(false);
+    let fr = Array.isArray(p.frames) && p.frames.every(isValidState) ? p.frames.map(normalize) : [];
+    if (fr.length && !(p.v >= 2)) fr = migrateV1(fr);
+    frames = fixCatches(fr);
+    if (frames.length) {
+      cur = Math.max(-1, Math.min(frames.length - 1, Number.isInteger(p.cur) ? p.cur : 0));
+      board = cur < 0 ? setupBoard() : frames[cur];
+    } else {
+      cur = -1;
+      board = ensureServe(normalize(p.start && isValidState(p.start) ? p.start : presetState(PRESETS[0].items[0])));
+      stripCatch(board);
+    }
+    people = normalizePeople(p.people); // older points: no one marked as 「自分」
+    library.currentId = p.id;
+    viewingSample = null;
+    activePreset = null;
+    lastSavedKey = dataKey(snapshot());
+    writeLibrary();
+    renderPresets();
+    render();
+    renderPointList();
+  }
+  // The スタート arrangement of the point on screen, as the start of a point with no shots yet.
+  function startArrangement() {
+    const start = ensureServe(clone(frames.length ? setupBoard() : board));
+    stripCatch(start);
+    return start;
+  }
+  // 新規: a fresh point starting from the current スタート arrangement; the old one stays in the list.
+  function newPointFromHere() {
+    if (playing) playing.stop(false);
+    saveNow();
+    const p = makePoint(nextName(), { frames: [], start: startArrangement(), cur: -1, people: clone(people) }); // same players as now
+    library.points.unshift(p);
+    openPoint(p);
+    toast(t('toast.created', { name: p.name }));
+  }
+  // Whole copy of a listed point; it opens right away.
+  function copyPoint(src) {
+    saveNow();
+    const p = makePoint(t('point.copyName', { name: src.name }), { frames: clone(src.frames), start: src.start ? clone(src.start) : null, cur: src.cur, people: normalizePeople(src.people) },
+      { id: src.id, name: src.name });
+    p.v = src.v;
+    library.points.unshift(p);
+    openPoint(p);
+    toast(t('toast.created', { name: p.name }));
+  }
+  // 「ここからコピー」: スタート up to the shown shot becomes a new point (shot 0 = スタート only).
+  function copyHere() {
+    saveNow();
+    const src = viewingSample ? { id: null, name: t('point.sampleSrc', { name: sampleName(viewingSample) }) } : currentPoint();
+    if (!src) return;
+    const upto = cur + 1;
+    const snap = { ...(upto ? { frames: clone(frames.slice(0, upto)), start: null, cur: upto - 1 } : { frames: [], start: startArrangement(), cur: -1 }), people: clone(people) };
+    const p = makePoint(upto ? t('point.fromShot', { name: src.name, n: upto }) : t('point.fromStart', { name: src.name }), snap, { id: src.id, name: src.name, shot: upto });
+    library.points.unshift(p);
+    openPoint(p);
+    toast(t('toast.created', { name: p.name }));
+  }
+  function deletePoint(p) {
+    if (!confirm(t('confirm.deletePoint', { name: p.name }))) return;
+    library.points = library.points.filter((x) => x.id !== p.id);
+    if (library.currentId === p.id && !viewingSample) {
+      const next = [...library.points].sort((a, b) => b.updatedAt - a.updatedAt)[0];
+      if (next) openPoint(next);
+      else { library.currentId = null; newPointFromHere(); }
+    }
+    writeLibrary();
+    renderPointList();
+  }
+  // Most recently touched first; copies sit right under the point they came from.
+  function orderedPoints() {
+    const byTime = [...library.points].sort((a, b) => b.updatedAt - a.updatedAt);
+    const ids = new Set(library.points.map((x) => x.id));
+    const kids = new Map();
+    for (const x of byTime) if (x.origin && x.origin.id && ids.has(x.origin.id)) (kids.get(x.origin.id) || kids.set(x.origin.id, []).get(x.origin.id)).push(x);
+    const out = [];
+    const walk = (x, depth) => { out.push({ p: x, depth }); for (const c of kids.get(x.id) || []) walk(c, depth + 1); };
+    for (const x of byTime) if (!(x.origin && x.origin.id && ids.has(x.origin.id))) walk(x, 0);
+    return out;
+  }
+  function renderPointList() {
+    const busy = !!playing;
+    const ids = new Set(library.points.map((x) => x.id));
+    const originText = (o) => (o && o.name
+      ? ` · ${t('list.origin', { name: o.name })}${o.id && !ids.has(o.id) ? t('list.originDeleted') : ''}${o.shot ? t('list.originShot', { n: o.shot }) : o.shot === 0 ? t('list.originStart') : ''}` : '');
+    const rows = orderedPoints().map(({ p, depth }) => {
+      const isCur = p.id === library.currentId && !viewingSample;
+      const meta = h('span', { className: 'meta', textContent: `${t('list.shots', { n: (p.frames || []).length })} · ${fmtDate(p.updatedAt)}${originText(p.origin)}` });
+      if (isCur) meta.prepend(h('span', { className: 'tag', textContent: t('list.current') }));
+      const small = (text, onclick, extra = {}) => h('button', { className: 'btn small', textContent: text, disabled: busy, onclick, ...extra });
+      return h('li', { className: [depth && 'child', isCur && 'current'].filter(Boolean).join(' '), dataset: { id: p.id } },
+        h('button', { className: 'open', disabled: isCur || busy, title: isCur ? t('list.current') : t('list.open', { name: p.name }),
+          onclick: () => { saveNow(); openPoint(p); setOverlay(null); toast(t('toast.opened', { name: p.name })); } },
+        h('span', { className: 'name', textContent: p.name }), meta),
+        small(t('list.rename'), () => {
+          const v = prompt(t('prompt.pointName'), p.name);
+          if (v === null || !v.trim()) return;
+          p.name = v.trim().slice(0, 40);
+          writeLibrary();
+          renderPointList();
+        }, { aria: { label: t('list.renameAria', { name: p.name }) } }),
+        small(t('list.copy'), () => { copyPoint(p); setOverlay(null); }),
+        small(t('list.delete'), () => deletePoint(p), { className: 'btn small danger', aria: { label: t('list.deleteAria', { name: p.name }) } }));
+    });
+    $('list-points').replaceChildren(...rows);
+    const input = $('point-name'), cp = currentPoint();
+    if (document.activeElement !== input) input.value = viewingSample ? t('name.sample', { name: sampleName(viewingSample) }) : cp ? cp.name : '';
+    input.placeholder = t('name.placeholder');
+    input.disabled = !!viewingSample;
+    document.title = t('app.docTitle', { name: viewingSample ? sampleName(viewingSample) : cp ? cp.name : '' });
+    renderSamples();
+  }
+  // Samples: watching one does not add it to the list; editing it does (see saveNow).
+  function renderSamples() {
+    $('list-samples').replaceChildren(...SAMPLES.map((smp) => h('li', { className: viewingSample === smp ? 'current' : '' },
+      h('span', { className: 'open' }, h('span', { className: 'name', textContent: sampleName(smp) }), h('span', { className: 'meta', textContent: `${t('list.shots', { n: smp.frames.length })} · ${t('sample.label')}` })),
+      h('button', { className: 'btn small sample', textContent: t('sample.watch'), dataset: { sample: smp.id }, disabled: !!playing, onclick: () => loadSample(smp) }))));
+  }
+  $('point-name').addEventListener('keydown', (e) => { if (e.key === 'Enter') e.target.blur(); });
+  $('point-name').addEventListener('blur', () => renderPointList());
+  $('point-name').addEventListener('input', () => {
+    const cp = currentPoint();
+    if (!cp || viewingSample) return;
+    cp.name = $('point-name').value.trim() || cp.name;
+    writeLibrary();
+    renderPointList();
+  });
+  $('btn-new-point').addEventListener('click', () => { newPointFromHere(); setOverlay(null); });
+
+  // First run with the list: bring in the named points and the work in progress of older versions.
+  function loadLibrary() {
+    try {
+      const v = JSON.parse(localStorage.getItem(LS_LIBRARY) || 'null');
+      if (v && Array.isArray(v.points)) { library = { v: 1, currentId: v.currentId || null, points: v.points.filter((x) => x && x.id) }; return; }
+    } catch (_) { /* fall through to a fresh list */ }
+    const now = Date.now();
+    readList(LS_POINTS).forEach((it, i) => {
+      if (!Array.isArray(it.frames) || !it.frames.length) return;
+      library.points.push({ id: it.id || uid(), name: it.name || `${t('point.base')} ${i + 1}`, createdAt: it.savedAt || now, updatedAt: it.savedAt || now,
+        v: it.v >= 2 ? 2 : 1, frames: it.frames, start: null, cur: 0 });
+    });
+    let d = null;
+    try { d = JSON.parse(localStorage.getItem(LS_DRAFT) || 'null'); } catch (_) { d = null; }
+    if (d && Array.isArray(d.frames) && (d.frames.length || (d.board && isValidState(d.board)))) {
+      const p = { id: uid(), name: t('point.resumed'), createdAt: now, updatedAt: now + 1, v: 2, frames: d.frames, start: d.frames.length ? null : d.board,
+        cur: Number.isInteger(d.cur) ? d.cur : 0 };
+      library.points.unshift(p);
+      library.currentId = p.id;
+    }
+    writeLibrary();
+  }
+
+  // Read-only view of the point on screen, for tests and debugging.
+  window.tennisBoardDebug = { snapshot: () => clone(snapshot()) };
+
+  // ---- Export / import: a point as one line of text, to send it or keep a copy outside the browser.
+  const EXPORT_TYPE = 'tennis-board-point';
+  function exportText() {
+    if (saveTimer) saveNow();
+    const snap = snapshot(), cp = currentPoint();
+    const name = viewingSample ? sampleName(viewingSample) : cp ? cp.name : t('point.base');
+    return { name, text: JSON.stringify({ type: EXPORT_TYPE, v: 1, name, pv: 2, frames: snap.frames, start: snap.start, cur: snap.cur, people: snap.people }) };
+  }
+  function exportPoint() {
+    if (playing) return;
+    const { name, text } = exportText();
+    // The Claude app on iPhone may not allow the clipboard: then the text is shown to copy by hand.
+    const manual = () => prompt(t('prompt.exportManual'), text);
+    try {
+      navigator.clipboard.writeText(text).then(() => toast(t('toast.exported', { name })), manual);
+    } catch (_) { manual(); }
+  }
+  function importPoint() {
+    if (playing) return;
+    const text = prompt(t('prompt.import'), '');
+    if (text === null || !text.trim()) return;
+    let d = null;
+    try { d = JSON.parse(text.trim()); } catch (_) { d = null; }
+    const frames = d && d.type === EXPORT_TYPE && Array.isArray(d.frames) ? d.frames : null;
+    if (!frames || !(frames.length ? frames.every(isValidState) : isValidState(d.start))) { toast(t('toast.importBad')); return; }
+    saveNow();
+    const p = makePoint(String(d.name || t('point.base')).slice(0, 40), { frames, start: frames.length ? null : d.start, cur: Number.isInteger(d.cur) ? d.cur : 0, people: normalizePeople(d.people) });
+    p.v = d.pv >= 2 ? 2 : 1;
+    library.points.unshift(p);
+    openPoint(p);
+    toast(t('toast.imported', { name: p.name }));
+  }
+  $('btn-export').addEventListener('click', exportPoint);
+  $('btn-import').addEventListener('click', importPoint);
+
+  // Start-up.
+  // Part of one script with src/model/* (see tools/build.js): names are shared, no imports.
+  // ---- Init
+  drawCourt();
+  buildPieces();
+  buildLangSeg();
+  try { if (localStorage.getItem(LS_LIST_COLLAPSED)) document.body.classList.add('list-collapsed'); } catch (_) {}
+  applyLayout();
+  loadLibrary();
+  const startPoint = currentPoint() || [...library.points].sort((a, b) => b.updatedAt - a.updatedAt)[0];
+  renderLists();
+  if (startPoint) {
+    openPoint(startPoint);
+    if (frames.length) toast(t('toast.resumed', { name: startPoint.name, shots: t('list.shots', { n: frames.length }) }));
+  } else {
+    ensureServe(board); // before any shot, the board is the serve being planned
+    const p = makePoint(nextName(), snapshot());
+    library.points.push(p);
+    openPoint(p);
+  }
+})();
+</script>
+</body>
+</html>
