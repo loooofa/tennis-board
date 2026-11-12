@@ -142,6 +142,9 @@
   /* ---- 「…」 menu: rarely used actions. The ones used most sit lowest, nearest the thumb. */
   .menu-items { display: grid; gap: 6px; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   .menu-items .full { grid-column: 1 / -1; }
+  .share-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+  .share-row .btn { padding-left: 6px; padding-right: 4px; letter-spacing: -.02em; }
+  .share-row .ic { width: 1.1em; margin-right: 0; }
   .menu-items .btn { text-align: left; overflow: hidden; text-overflow: ellipsis; }
   .menu-items .ic { display: inline-block; width: 1.3em; text-align: center; margin-right: 2px; }
   .speed-row { display: flex; align-items: center; gap: 8px; }
@@ -334,8 +337,11 @@
       <h2 class="only-wide" data-i18n="menu.title">その他の操作</h2>
       <div class="menu-items">
         <button class="btn full start-only not-wide" id="btn-menu-save-formation"><span class="ic">＋</span><span data-i18n="presets.saveLong">今の並びをマイ陣形に保存</span></button>
-        <button class="btn" id="btn-export" title="表示中のポイントを文字にしてコピーする(送ったり、残しておいたりできる)" data-i18n-title="menu.exportTitle"><span class="ic">⇪</span><span data-i18n="menu.export">書き出す</span></button>
-        <button class="btn" id="btn-import" title="書き出した文字を貼り付けて、ポイントを一覧に追加する" data-i18n-title="menu.importTitle"><span class="ic">⇩</span><span data-i18n="menu.import">読み込む</span></button>
+        <div class="share-row full">
+          <button class="btn" id="btn-share" title="表示中のポイントを開けるリンクにして、送る(受け取った人の一覧に新しいポイントとして入る)" data-i18n-title="menu.shareTitle"><span class="ic">🔗</span><span data-i18n="menu.share">共有</span></button>
+          <button class="btn" id="btn-export" title="表示中のポイントを文字にしてコピーする(送ったり、残しておいたりできる)" data-i18n-title="menu.exportTitle"><span class="ic">⇪</span><span data-i18n="menu.export">書き出す</span></button>
+          <button class="btn" id="btn-import" title="書き出した文字を貼り付けて、ポイントを一覧に追加する" data-i18n-title="menu.importTitle"><span class="ic">⇩</span><span data-i18n="menu.import">読み込む</span></button>
+        </div>
         <div class="speed-row full">
           <span class="label" data-i18n="menu.speed">再生速度</span>
           <div class="seg" role="group" aria-label="再生速度" data-i18n-aria="menu.speed" id="speed-seg"></div>
@@ -403,7 +409,7 @@
   // ms = flight time to the next hitter, peak = height of the arc before / after the bounce.
   const SHOT_TYPES = {
     normal: { ms: 1000, peak: [0.35, 0.15] },
-    lob:    { ms: 1700, peak: [1, 0.3] },
+    lob:    { ms: 2000, peak: [1.9, 0.4] }, // a lob goes well above the others (peak is 1 for a ball at about 1.6m)
     hard:   { ms: 620,  peak: [0.12, 0.06] },
     // Serves (1打目 only). Kick is slower and jumps high after the bounce; flat and slice stay low.
     flat:   { ms: 760,  peak: [0.2, 0.1] },
@@ -921,13 +927,18 @@
       'gender.m': '男',
       'gender.w': '女',
       'mixed.who': '{label}({gender})',
+      'menu.share': '共有',
+      'menu.shareTitle': '表示中のポイントを開けるリンクにして、送る(受け取った人の一覧に新しいポイントとして入る)',
       'menu.export': '書き出す',
       'menu.exportTitle': '表示中のポイントを文字にしてコピーする(送ったり、残しておいたりできる)',
       'menu.import': '読み込む',
       'menu.importTitle': '書き出した文字を貼り付けて、ポイントを一覧に追加する',
+      'toast.shared': '「{name}」のリンクをコピーしました。貼り付けて送れます',
+      'toast.linkBad': 'リンクからポイントを読み込めませんでした(リンクが途中で切れているかもしれません)',
       'toast.exported': '「{name}」をコピーしました。貼り付けて送れます',
       'toast.imported': '「{name}」を読み込みました',
       'toast.importBad': '読み込めませんでした(書き出した文字をそのまま貼り付けてください)',
+      'prompt.shareManual': '下のリンクをすべて選んでコピーしてください',
       'prompt.exportManual': '下の文字をすべて選んでコピーしてください',
       'prompt.import': '書き出した文字を貼り付けてください',
       'menu.autoShift': 'ペアの平行移動',
@@ -1065,13 +1076,18 @@
       'gender.m': 'M',
       'gender.w': 'W',
       'mixed.who': '{label} ({gender})',
+      'menu.share': 'Share',
+      'menu.shareTitle': 'Send the point shown as a link (it is added to the receiver’s list as a new point)',
       'menu.export': 'Export',
       'menu.exportTitle': 'Copy the point shown as text (to send it or keep it)',
       'menu.import': 'Import',
       'menu.importTitle': 'Paste exported text to add that point to the list',
+      'toast.shared': 'Copied the link to “{name}”. Paste it anywhere to send it',
+      'toast.linkBad': 'Couldn’t open the point in this link (the link may be cut off)',
       'toast.exported': 'Copied “{name}”. Paste it anywhere to send it',
       'toast.imported': 'Imported “{name}”',
       'toast.importBad': 'Couldn’t import (paste the exported text as it is)',
+      'prompt.shareManual': 'Select all of the link below and copy it',
       'prompt.exportManual': 'Select all of the text below and copy it',
       'prompt.import': 'Paste the exported text',
       'menu.autoShift': 'Pair shift',
@@ -1458,14 +1474,14 @@
     }
   }
 
-  // h = ball height 0..1; drawn as a lifted, enlarged ball over its ground shadow.
+  // h = ball height (1 = a high ball; a lob goes above that); drawn as a lifted, enlarged ball over its ground shadow.
   function renderPieces(pieces, h = 0) {
     for (const p of PIECES) {
       const pos = pieces[p.id];
       pieceEls[p.id].setAttribute('transform', `translate(${pos.x.toFixed(2)} ${pos.y.toFixed(2)})`);
     }
     ballShadow.setAttribute('display', h > 0.02 ? '' : 'none');
-    ballBody.setAttribute('transform', h > 0.001 ? `translate(0 ${(-h * 12).toFixed(2)}) scale(${(1 + h * 0.9).toFixed(3)})` : '');
+    ballBody.setAttribute('transform', h > 0.001 ? `translate(0 ${(-(12 * Math.min(h, 1) + 22 * Math.max(0, h - 1))).toFixed(2)}) scale(${(1 + 0.9 * Math.min(h, 1) + 0.3 * Math.max(0, h - 1)).toFixed(3)})` : '');
   }
 
   // ---- Handles for the shot on the board: × (bounce spot), ◇ and ○ (serve shape).
@@ -1717,7 +1733,7 @@
     $('btn-play').disabled = !canPlay();
     $('btn-play').textContent = t(busy ? 'nav.stop' : 'nav.play');
     $('btn-del-frame').disabled = busy || cur < 0;
-    for (const id of ['btn-add-frame', 'btn-reset-point', 'btn-copy-here', 'btn-export', 'btn-import', 'btn-save-formation', 'btn-menu-save-formation', 'btn-presets', 'btn-new-point']) {
+    for (const id of ['btn-add-frame', 'btn-reset-point', 'btn-copy-here', 'btn-share', 'btn-export', 'btn-import', 'btn-save-formation', 'btn-menu-save-formation', 'btn-presets', 'btn-new-point']) {
       if ($(id)) $(id).disabled = busy;
     }
     // Upright phones show the short label (the long one does not fit in English).
@@ -2609,23 +2625,70 @@
       navigator.clipboard.writeText(text).then(() => toast(t('toast.exported', { name })), manual);
     } catch (_) { manual(); }
   }
-  function importPoint() {
-    if (playing) return;
-    const text = prompt(t('prompt.import'), '');
-    if (text === null || !text.trim()) return;
-    let d = null;
-    try { d = JSON.parse(text.trim()); } catch (_) { d = null; }
+  // Adds exported data (already parsed) to the list as a new point and opens it; false if it is not a point.
+  function addImported(d) {
     const frames = d && d.type === EXPORT_TYPE && Array.isArray(d.frames) ? d.frames : null;
-    if (!frames || !(frames.length ? frames.every(isValidState) : isValidState(d.start))) { toast(t('toast.importBad')); return; }
+    if (!frames || !(frames.length ? frames.every(isValidState) : isValidState(d.start))) return false;
     saveNow();
     const p = makePoint(String(d.name || t('point.base')).slice(0, 40), { frames, start: frames.length ? null : d.start, cur: Number.isInteger(d.cur) ? d.cur : 0, people: normalizePeople(d.people) });
     p.v = d.pv >= 2 ? 2 : 1;
     library.points.unshift(p);
     openPoint(p);
     toast(t('toast.imported', { name: p.name }));
+    return true;
   }
+  function importPoint() {
+    if (playing) return;
+    const text = prompt(t('prompt.import'), '');
+    if (text === null || !text.trim()) return;
+    let d = null;
+    try { d = JSON.parse(text.trim()); } catch (_) { d = null; }
+    if (!addImported(d)) toast(t('toast.importBad'));
+  }
+
+  // ---- Share link: the point packed into the part after # of this page's address (nothing is sent anywhere);
+  // opening the link adds it to the opener's list as a new point. 「z.」 = deflated, 「j.」 = plain (no compression support).
+  const toB64 = (bytes) => { let s = ''; for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000)); return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); };
+  const fromB64 = (t64) => Uint8Array.from(atob(t64.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0));
+  async function pipeBytes(bytes, stream) {
+    const out = new Blob([bytes]).stream().pipeThrough(stream);
+    return new Uint8Array(await new Response(out).arrayBuffer());
+  }
+  async function packText(text) {
+    const raw = new TextEncoder().encode(text);
+    try { return 'z.' + toB64(await pipeBytes(raw, new CompressionStream('deflate-raw'))); } catch (_) { return 'j.' + toB64(raw); }
+  }
+  async function unpackText(packed) {
+    const bytes = fromB64(packed.slice(2));
+    return new TextDecoder().decode(packed.startsWith('z.') ? await pipeBytes(bytes, new DecompressionStream('deflate-raw')) : bytes);
+  }
+  async function shareLink() {
+    const { name, text } = exportText();
+    return { name, url: location.href.split('#')[0] + '#p=' + await packText(text) };
+  }
+  async function sharePoint() {
+    if (playing) return;
+    let link;
+    try { link = await shareLink(); } catch (_) { toast(t('toast.importBad')); return; }
+    const manual = () => prompt(t('prompt.shareManual'), link.url);
+    try {
+      if (navigator.share) { await navigator.share({ title: link.name, url: link.url }); return; }
+    } catch (e) { if (e && e.name === 'AbortError') return; } // closed the share sheet: nothing to do
+    try { await navigator.clipboard.writeText(link.url); toast(t('toast.shared', { name: link.name })); } catch (_) { manual(); }
+  }
+  // A shared link opened (at start-up, or later in the same tab): add its point, then drop it from the address.
+  async function openSharedLink() {
+    const m = /^#p=([zj]\.[\w-]+)$/.exec(location.hash);
+    if (!m) return;
+    try { history.replaceState(null, '', location.pathname + location.search); } catch (_) {}
+    let d = null;
+    try { d = JSON.parse(await unpackText(m[1])); } catch (_) { d = null; }
+    if (!addImported(d)) toast(t('toast.linkBad'));
+  }
+  addEventListener('hashchange', openSharedLink);
   $('btn-export').addEventListener('click', exportPoint);
   $('btn-import').addEventListener('click', importPoint);
+  $('btn-share').addEventListener('click', sharePoint);
 
   // Start-up.
   // Part of one script with src/model/* (see tools/build.js): names are shared, no imports.
@@ -2647,6 +2710,7 @@
     library.points.push(p);
     openPoint(p);
   }
+  openSharedLink();
 })();
 </script>
 </body>
